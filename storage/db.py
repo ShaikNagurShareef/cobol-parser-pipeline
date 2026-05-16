@@ -22,8 +22,16 @@ def init_db(db_path: str | pathlib.Path) -> None:
 
     con = sqlite3.connect(_DB_PATH)
     con.executescript(_SCHEMA_SQL.read_text())
+    # Migration: add columns that may be missing from DBs created before schema updates
+    _migrate(con)
     con.commit()
     con.close()
+
+
+def _migrate(con: sqlite3.Connection) -> None:
+    existing = {row[1] for row in con.execute("PRAGMA table_info(nodes)").fetchall()}
+    if "name" not in existing:
+        con.execute("ALTER TABLE nodes ADD COLUMN name TEXT")
 
 
 def _resolve_path(db_path: str | pathlib.Path | None = None) -> pathlib.Path:

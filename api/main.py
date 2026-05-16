@@ -473,9 +473,8 @@ def emit_java_endpoint(program_name: str):
 @app.post("/pipeline/run", tags=["Pipeline"])
 async def run_pipeline_stream(body: dict = {}):
     """Stream pipeline execution log via Server-Sent Events."""
-    corpus    = body.get("corpus",    str(PROJECT_ROOT / "external/carddemo/app/cbl"))
-    copybooks = body.get("copybooks", str(PROJECT_ROOT / "external/carddemo/app/cpy"))
-    db_path   = body.get("db",        str(DEFAULT_DB))
+    corpus  = body.get("corpus", str(PROJECT_ROOT / "external/carddemo/app/cbl"))
+    db_path = body.get("db",     str(DEFAULT_DB))
 
     async def event_stream() -> AsyncGenerator[str, None]:
         def fmt(msg: str, kind: str = "log") -> str:
@@ -493,7 +492,6 @@ async def run_pipeline_stream(body: dict = {}):
         cmd = [
             sys.executable, str(PROJECT_ROOT / "pipeline" / "batch.py"),
             "--corpus", corpus,
-            "--copybooks", copybooks,
             "--db", db_path,
         ]
 
