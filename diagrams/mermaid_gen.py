@@ -21,7 +21,7 @@ def generate_all_diagrams(con: sqlite3.Connection, output_dir: pathlib.Path | No
 
 # ─── Call Graph ───────────────────────────────────────────────────────────────
 
-def _call_graph(con: sqlite3.Connection, out: pathlib.Path) -> None:
+def _call_graph_mmd(con: sqlite3.Connection) -> str:
     rows = con.execute(
         """
         SELECT n1.name AS caller, cg.callee_name AS callee, cg.call_type
@@ -31,7 +31,6 @@ def _call_graph(con: sqlite3.Connection, out: pathlib.Path) -> None:
         LIMIT 150
         """
     ).fetchall()
-
     lines = ["graph LR"]
     seen: set[tuple] = set()
     for row in rows:
@@ -44,13 +43,16 @@ def _call_graph(con: sqlite3.Connection, out: pathlib.Path) -> None:
         style = "-->" if "LITERAL" in row["call_type"] else "-.->"
         label = f"|{row['call_type']}|" if "CICS" in row["call_type"] else ""
         lines.append(f"    {caller} {style}{label} {callee}")
+    return "\n".join(lines)
 
-    _write(out / "call_graph.mmd", "\n".join(lines))
+
+def _call_graph(con: sqlite3.Connection, out: pathlib.Path) -> None:
+    _write(out / "call_graph.mmd", _call_graph_mmd(con))
 
 
 # ─── Transaction Flow ─────────────────────────────────────────────────────────
 
-def _transaction_flow(con: sqlite3.Connection, out: pathlib.Path) -> None:
+def _tx_flow_mmd(con: sqlite3.Connection) -> str:
     rows = con.execute(
         """
         SELECT n1.name AS from_prog, tf.to_program, tf.verb, tf.trans_id
@@ -60,7 +62,6 @@ def _transaction_flow(con: sqlite3.Connection, out: pathlib.Path) -> None:
         LIMIT 100
         """
     ).fetchall()
-
     lines = ["stateDiagram-v2"]
     seen: set[tuple] = set()
     for row in rows:
@@ -74,17 +75,19 @@ def _transaction_flow(con: sqlite3.Connection, out: pathlib.Path) -> None:
         if row["trans_id"]:
             label += f"\\n({row['trans_id']})"
         lines.append(f"    {frm} --> {to} : {label}")
+    return "\n".join(lines)
 
-    _write(out / "transaction_flow.mmd", "\n".join(lines))
+
+def _transaction_flow(con: sqlite3.Connection, out: pathlib.Path) -> None:
+    _write(out / "transaction_flow.mmd", _tx_flow_mmd(con))
 
 
 # ─── JCL Job Chain ────────────────────────────────────────────────────────────
 
-def _jcl_job_chain(con: sqlite3.Connection, out: pathlib.Path) -> None:
+def _jcl_chain_mmd(con: sqlite3.Connection) -> str:
     rows = con.execute(
         "SELECT producer_job, consumer_job, dataset FROM jcl_dependency LIMIT 80"
     ).fetchall()
-
     lines = ["graph TD"]
     seen: set[tuple] = set()
     for row in rows:
@@ -97,16 +100,18 @@ def _jcl_job_chain(con: sqlite3.Connection, out: pathlib.Path) -> None:
         dsn = row["dataset"] or ""
         short_dsn = dsn.split(".")[-1] if "." in dsn else dsn
         lines.append(f"    {p} -->|{_safe(short_dsn)}| {c}")
-
     if len(lines) == 1:
         lines.append("    Note[No job dependencies found]")
+    return "\n".join(lines)
 
-    _write(out / "jcl_job_chain.mmd", "\n".join(lines))
+
+def _jcl_job_chain(con: sqlite3.Connection, out: pathlib.Path) -> None:
+    _write(out / "jcl_job_chain.mmd", _jcl_chain_mmd(con))
 
 
 # ─── File I/O Graph ───────────────────────────────────────────────────────────
 
-def _file_io_graph(con: sqlite3.Connection, out: pathlib.Path) -> None:
+def _file_io_mmd(con: sqlite3.Connection) -> str:
     rows = con.execute(
         """
         SELECT n.name AS program, fio.file_name, fio.operation
@@ -115,7 +120,6 @@ def _file_io_graph(con: sqlite3.Connection, out: pathlib.Path) -> None:
         LIMIT 120
         """
     ).fetchall()
-
     lines = ["graph LR"]
     seen: set[tuple] = set()
     for row in rows:
@@ -128,11 +132,13 @@ def _file_io_graph(con: sqlite3.Connection, out: pathlib.Path) -> None:
         seen.add(key)
         arrow = "-->" if op in ("WRITE", "REWRITE", "DELETE") else "<--"
         lines.append(f"    {prog} {arrow}|{op}| {fname}")
-
     if len(lines) == 1:
         lines.append("    Note[No file I/O found]")
+    return "\n".join(lines)
 
-    _write(out / "file_io_graph.mmd", "\n".join(lines))
+
+def _file_io_graph(con: sqlite3.Connection, out: pathlib.Path) -> None:
+    _write(out / "file_io_graph.mmd", _file_io_mmd(con))
 
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
