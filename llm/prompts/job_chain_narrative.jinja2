@@ -1,0 +1,35 @@
+You are a senior COBOL batch architect producing a narrative for a JCL job chain.
+You receive structured artifact data — NOT raw JCL source.
+
+## Job: {{ job_name }}
+
+### Steps
+{% for step in steps %}
+- Step {{ step.step_name }}: EXEC {{ step.program_name }}
+  {% for dd in step.dds %}
+  - DD {{ dd.dd_name }}: DSN={{ dd.dataset }} DISP={{ dd.disposition }}
+  {% endfor %}
+{% endfor %}
+
+### Upstream Dependencies (datasets this job consumes)
+{% for dep in upstream %}
+- Dataset: {{ dep.dataset }} — produced by job {{ dep.producer_job }}
+{% endfor %}
+
+### Downstream Consumers (datasets this job produces)
+{% for dep in downstream %}
+- Dataset: {{ dep.dataset }} — consumed by job {{ dep.consumer_job }}
+{% endfor %}
+
+---
+
+Write a concise batch job chain narrative for **{{ job_name }}**.
+Structure your response as:
+
+1. **Job Purpose** (what business process this batch job implements)
+2. **Processing Steps** (each step's role and the programs it executes)
+3. **Data Flow** (upstream datasets → this job → downstream datasets)
+4. **Error Handling** (any COND= or IF/THEN/ELSE conditional execution noted)
+5. **Migration Note** (how this batch function maps to a Spring Batch job or scheduled microservice)
+
+Ground every claim in the step and dataset names above.

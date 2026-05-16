@@ -1,0 +1,37 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# Environment / secrets
+.env
+.env.*
+*.env
+
+# Java build output (JAR is rebuilt from source)
+cobol-exporter/target/
+
+# Pipeline database and generated artifacts
+artifacts/pipeline.db
+artifacts/pipeline.db-shm
+artifacts/pipeline.db-wal
+
+# Generated output (reproducible from pipeline run)
+output/
+
+# External repos (cloned by run.sh --setup)
+external/
+
+# OS / editor
+.DS_Store
+*.swp
+*.swo
+.idea/
+.vscode/
+*.iml
+
+# Logs
+*.log

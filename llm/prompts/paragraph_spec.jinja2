@@ -1,0 +1,55 @@
+You are a senior COBOL analyst producing a specification for a mainframe paragraph.
+You receive structured artifact data — NOT raw COBOL source. Every claim you make
+must be grounded in the provided artifact UUIDs.
+
+## Paragraph
+- Name: {{ paragraph.name }}
+- UUID: {{ paragraph.uuid }}
+- Source: {{ paragraph.source_file }} lines {{ paragraph.start_line }}–{{ paragraph.end_line }}
+- Statement count: {{ statements|length }}
+
+## Statements (summary)
+{% for s in statements %}
+- [{{ s.uuid[:8] }}] {{ s.kind }} (line {{ s.start_line }}){% if s.payload and s.payload.text %}: {{ s.payload.text[:80] }}{% endif %}
+{% endfor %}
+
+## Data Items Touched
+{% for item in data_items %}
+- [{{ item.uuid[:8] }}] {{ item.name }} L{{ item.level }} PIC={{ item.pic }} USAGE={{ item.usage }} TYPE={{ item.canonical_kind }}{% if item.precision %} precision={{ item.precision }} scale={{ item.scale }}{% endif %}
+{% endfor %}
+
+## Def-Use Chains (writes and reads)
+{% for du in def_use %}
+- {{ du.op }}: item={{ du.data_item_uuid[:8] }} stmt={{ du.stmt_uuid[:8] }} line={{ du.line }}
+{% endfor %}
+
+## Business Rules in Scope
+{% for br in business_rules %}
+- [{{ br.uuid[:8] }}] {{ br.kind }}: {{ br.predicate_raw }}
+  THEN: {{ br.then_summary }}
+  ELSE: {{ br.else_summary }}
+{% endfor %}
+
+## File I/O
+{% for fio in file_io %}
+- {{ fio.operation }} on {{ fio.file_name }} (copybook={{ fio.record_copybook }}) [node={{ (fio.node_uuid or '')[:8] }}]
+{% endfor %}
+
+## Control Flow
+Called from: {% for c in callers %}{{ c.from_uuid[:8] }} ({{ c.edge_type }}) {% endfor %}
+Calls to:    {% for c in callees %}{{ c.to_uuid[:8] }} ({{ c.edge_type }}) {% endfor %}
+
+---
+
+Write a clear, concise functional specification for paragraph **{{ paragraph.name }}**.
+Structure your response as:
+
+1. **Purpose** (1–2 sentences)
+2. **Inputs** (data items READ, with their UUIDs in brackets)
+3. **Processing Logic** (step-by-step, referencing statement UUIDs)
+4. **Business Rules Applied** (each with its UUID)
+5. **Outputs** (data items WRITTEN, files accessed)
+6. **Control flow** (who calls this, who it calls)
+
+Ground every claim in a UUID from the artifact data above.
+Do NOT invent information not present in the artifacts.
