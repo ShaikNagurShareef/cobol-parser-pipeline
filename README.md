@@ -2,7 +2,7 @@
 
 > **UST CodeCrafter Championship 2026 — Solo Submission**  
 > Competitor: **Nagur Shareef Shaik**  
-> AI Agent: **Claude Code** (Anthropic) — primary and sole agent  
+> AI Agent: **Claude Code** (Anthropic, claude-sonnet-4-6)  
 > IDE: Claude Code VSCode Extension  
 > Submission deadline: May 24, 2026
 
@@ -10,26 +10,46 @@
 
 ## What This Is
 
-A production-grade, deterministic ANTLR-based COBOL analysis and forward-engineering pipeline targeting the **AWS CardDemo corpus** (~60 K lines of COBOL, JCL, BMS, CSD, Assembler, and copybooks). The pipeline produces a fully cross-linked, UUID-addressable 8-layer artifact bundle that powers:
+A production-grade, deterministic ANTLR-based COBOL analysis and forward-engineering pipeline targeting the **AWS CardDemo corpus** (~60 K lines of COBOL, JCL, BMS, CSD, and copybooks). The pipeline produces a fully cross-linked, UUID-addressable **7-layer artifact bundle** that powers:
 
-- **LLM specification generation** — grounded, evidence-linked natural-language specs for every paragraph
-- **Java forward engineering** — type-correct Java with BigDecimal/RoundingMode from COMP-3 fields
-- **Interactive web dashboard** — real-time pipeline execution, Mermaid diagrams, risk register, coverage reports
+- **LangGraph spec generation** — grounded, UUID-evidence-linked natural-language specs for every paragraph and program, using a 5-node LangGraph state machine
+- **Java forward engineering** — type-correct Java with `BigDecimal`/`RoundingMode` derived from COMP-3 PIC clauses via a canonical IR
+- **Interactive web dashboard** — real-time pipeline execution, Mermaid diagrams, risk register, Layer Explorer, coverage reports, source viewer
+
+### Corpus Coverage (live DB)
+
+| Metric | Count |
+|--------|-------|
+| COBOL programs parsed | 31 (100% coverage) |
+| Total source files OK | 135 / 135 (COBOL + JCL + BMS + CSD) |
+| Paragraphs | 1,200 |
+| Statements | 14,360 |
+| Data items | 22,462 |
+| 88-level conditions | 1,420 |
+| CFG edges | 3,514 |
+| Def-use entries | 524 |
+| Call edges | 193 |
+| Business rules | 267 |
+| Migration risks | 1,400 (12 HIGH, 1,352 MEDIUM, 36 LOW) |
+| JCL–COBOL file bindings | 684 |
+| CICS transaction flow edges | 557 |
+| BMS screen maps | 17 |
+| CSD catalog entries | 189 |
 
 ---
 
 ## Championship Rubric Coverage
 
-| # | Criterion | Status | How demonstrated |
-|---|-----------|--------|-----------------|
-| 1 | COBOL parsing (ProLeap / ANTLR4) | ✅ Done | `cobol-exporter/` fat JAR → Layer 1 typed AST |
-| 2 | Cross-file UUID addressability | ✅ Done | Deterministic uuid5 across all 8 layers |
-| 3 | Data dictionary + type system | ✅ Done | Layer 2, `data_items` table, PIC → canonical type lowering |
-| 4 | Control / data-flow graphs | ✅ Done | Layer 3 CFG + def-use chains in `control_flow`, `def_use` |
-| 5 | Inter-program analysis (call graph, JCL, CICS) | ✅ Done | Layer 4, `call_graph`, `transaction_flow`, `jcl_dependency` |
-| 6 | Business rule extraction | ✅ Done | Layer 5, `business_rules` table with predicate resolution |
-| 7 | Migration risk register | ✅ Done | Layer 7, `risk_register` with severity scoring |
-| 8 | LLM specification & Java emit | ✅ Done | `llm/`, `ir/` — multi-provider (OpenAI / Gemini) |
+| # | Criterion | Weight | Status | How demonstrated |
+|---|-----------|--------|--------|-----------------|
+| 1 | Parse Coverage (honest reporting) | 20% | ✅ | 100% of 135 files; per-file status in `/reports/coverage` |
+| 2 | Artifact Contract (Layers 1–7, UUID links) | 25% | ✅ | All 7 layers populated, deterministic uuid5, cross-linked by `parent_uuid` |
+| 3 | Spec Generation Demo (COTRN02C paragraph) | 15% | ✅ | LangGraph 5-node pipeline → grounded spec via `/generate-spec` |
+| 4 | Forward Engineering (IR → Java, COUSR0xC) | 15% | ✅ | Canonical IR → BigDecimal/long/String Java classes via `/emit-java/{name}` |
+| 5 | Engineering Quality (tests, UUID stability) | 10% | ✅ | `pytest tests/` — uuid stability, preprocessor, layer1, API |
+| 6 | Performance (parallel batch, WAL SQLite) | 5% | ✅ | `ThreadPoolExecutor` Phase 1, `PRAGMA journal_mode=WAL` |
+| 7 | Migration Risk Register (severity-rated) | 5% | ✅ | 1,400 risks with HIGH/MEDIUM/LOW in `risk_register` |
+| 8 | LangGraph Orchestration (bonus) | 5% | ✅ | Full 5-node LangGraph state machine with grounding check |
 
 ---
 
@@ -45,19 +65,18 @@ cd cobol-parser-pipeline
 ```
 
 `run.sh` is fully automated:
-- Installs Maven (if missing via Homebrew)
+- Installs Maven (if missing via Homebrew) and builds the ProLeap Java fat JAR
 - Creates Python virtual environment and installs all dependencies
-- Clones the AWS CardDemo corpus and ProLeap COBOL parser
-- Builds the Java fat JAR
-- Runs the full 8-layer analysis pipeline
-- Starts the FastAPI REST API with the web dashboard at **http://localhost:8000**
+- Clones the AWS CardDemo corpus
+- Runs the full 7-layer analysis pipeline over the complete corpus
+- Starts the FastAPI REST API + web dashboard at **http://localhost:8000**
 
 ### Targeted modes
 
 ```bash
 ./run.sh --setup      # Environment bootstrap only (Maven, venv, clone repos, build JAR)
 ./run.sh --pipeline   # Run analysis pipeline only
-./run.sh --api        # Start API + web dashboard
+./run.sh --api        # Start API + web dashboard (if pipeline already run)
 ./run.sh --smoke      # Single-file smoke test (COSGN00C.cbl)
 ./run.sh --test       # Run pytest suite
 ./run.sh --diagrams   # Generate Mermaid .mmd files
@@ -75,6 +94,10 @@ export OPENAI_API_KEY=sk-...
 # Google Gemini
 export LLM_PROVIDER=gemini
 export GEMINI_API_KEY=AIza...
+
+# Anthropic Claude
+export LLM_PROVIDER=anthropic
+export ANTHROPIC_API_KEY=sk-ant-...
 ```
 
 ---
@@ -83,72 +106,72 @@ export GEMINI_API_KEY=AIza...
 
 ```
 cobol-parser-pipeline/
-├── cobol-exporter/            Java fat JAR — ProLeap wrapper, emits compact JSON CST
+├── cobol-exporter/            Java fat JAR — ProLeap ANTLR4 wrapper, emits compact JSON CST
 ├── parsers/
 │   ├── cobol/                 Python AST normaliser (CST → typed nodes + UUIDs)
-│   ├── jcl/                   ANTLR4 JCL grammar + parser
-│   ├── bms/                   ANTLR4 BMS grammar + parser
-│   ├── csd/                   ANTLR4 CSD grammar + parser
+│   ├── jcl/                   JCL parser (ANTLR4 grammar + Python)
+│   ├── bms/                   BMS screen map parser
+│   ├── csd/                   CICS CSD catalog parser
 │   ├── sql/                   EXEC SQL block extractor
 │   └── cics/                  EXEC CICS verb recogniser
 ├── pipeline/
 │   ├── preprocessor.py        COPY/REPLACE expander with provenance tracking
-│   ├── ingest.py              Single-file orchestrator
-│   └── batch.py               Full-corpus parallel runner
+│   ├── ingest.py              Single-file orchestrator (Layers 1–2)
+│   └── batch.py               Full-corpus parallel runner (all 8 phases)
 ├── artifacts/
-│   ├── layer1_ast.py          Typed AST → DB + JSON
-│   ├── layer2_symbols.py      Symbol table, data dictionary, type lowering
-│   ├── layer3_intra.py        CFG, def-use chains, cyclomatic complexity
-│   ├── layer4_inter.py        Call graph, CICS tx flow, file I/O, JCL dependency
-│   ├── layer5_business.py     Business rules, arithmetic specs, data lineage
-│   ├── layer6_resources.py    CSD catalog, BMS screen maps, copybook catalog
-│   └── layer7_quality.py      Coverage report, migration risk register
+│   ├── layer1_ast.py          Typed AST → DB nodes table + JSON output
+│   ├── layer2_symbols.py      Symbol table, data dictionary, PIC type lowering, 88-level extraction
+│   ├── layer3_intra.py        CFG, def-use chains, cyclomatic complexity metrics
+│   ├── layer4_inter.py        Call graph, CICS tx flow, file I/O, JCL–COBOL binding, dynamic CALL resolution
+│   ├── layer5_business.py     Business rules (IF/EVALUATE), arithmetic specs, 88-level predicate resolution
+│   ├── layer6_resources.py    CSD catalog, BMS screen maps, copybook consumer index
+│   └── layer7_quality.py      Parse coverage report, migration risk register (severity scoring)
 ├── storage/
 │   ├── schema.sql             SQLite DDL (20 tables, WAL mode)
 │   ├── db.py                  Connection factory + upsert helpers
-│   └── uuid_gen.py            Deterministic uuid5
+│   └── uuid_gen.py            Deterministic uuid5 from source coordinates
 ├── ir/
-│   ├── canonical_ir.py        AST + symbols → language-neutral IR
-│   └── java_emitter.py        IR → Java (BigDecimal, long, String, switch)
+│   ├── canonical_ir.py        AST + symbols → language-neutral IR (expr trees, not text blobs)
+│   └── java_emitter.py        IR → Java (BigDecimal, long, String, switch/case)
 ├── llm/
-│   ├── llm_client.py          Multi-provider client (OpenAI, Gemini)
-│   ├── retrieval.py           UUID-anchored artifact slice assembler
+│   ├── llm_client.py          Multi-provider client (OpenAI, Gemini, Anthropic)
+│   ├── retrieval.py           UUID-anchored artifact slice assembler (_best_prog_uuid dedup)
 │   ├── grounding.py           LLM output → UUID evidence mapper
-│   ├── langgraph_agent.py     LangGraph: retrieve → generate → ground-check → emit
-│   └── prompts/               Jinja2 templates (paragraph, program, job chain)
+│   ├── langgraph_agent.py     LangGraph 5-node pipeline
+│   ├── modernization_report.py  Full holistic 10-section report generator
+│   └── prompts/               Jinja2 templates (paragraph_spec, program_spec, job_chain_narrative)
 ├── api/
-│   ├── main.py                FastAPI app (15+ endpoints, SSE streaming)
-│   └── routers/               Modular route handlers
+│   └── main.py                FastAPI app (50+ endpoints, SSE streaming, Layer Explorer)
 ├── diagrams/
-│   └── mermaid_gen.py         SQL → Mermaid (call graph, tx flow, JCL, file I/O)
+│   └── mermaid_gen.py         SQL → Mermaid (call graph, tx flow, JCL chain, file I/O)
 ├── ui/
-│   └── index.html             Full-stack SPA dashboard (Tailwind, Chart.js, Mermaid.js)
+│   ├── src/app.ts             TypeScript SPA source
+│   ├── dist/                  Built bundle (Vite + Tailwind + Chart.js + Mermaid.js)
+│   └── index.html             Entry point (also served via FastAPI static mount)
 ├── tests/
 │   ├── test_uuid_stability.py
 │   ├── test_preprocessor.py
 │   ├── test_layer1.py
 │   └── test_api.py
+├── start.sh                   Launch server (build UI + start uvicorn)
 └── run.sh                     One-command bootstrap + pipeline + API
 ```
 
 ---
 
-## 8-Layer Artifact Bundle
+## 7-Layer Artifact Bundle
 
 | Layer | Description | Key DB Tables |
 |-------|-------------|---------------|
-| **L1** | Typed AST nodes: Program → Paragraph → Statement → DataItem | `nodes` |
-| **L2** | Symbol table, data dictionary, canonical PIC type lowering | `data_items`, `conditions_88`, `copybook_use` |
-| **L3** | Intra-program CFG, def-use chains, cyclomatic complexity | `control_flow`, `def_use`, `complexity_metrics` |
-| **L4** | Inter-program call graph, CICS tx flow, file/DB I/O, JCL dependency | `call_graph`, `transaction_flow`, `file_io`, `db_io`, `jcl_job`, `jcl_dependency` |
-| **L5** | Business rules (IF/EVALUATE), arithmetic specs, data lineage | `business_rules`, `arithmetic_specs` |
-| **L6** | CSD catalog, BMS screen maps, copybook consumer index | `csd_catalog`, `screen_map` |
-| **L7** | Parse coverage report, migration risk register | `parse_coverage`, `risk_register` |
-| **IR** | Language-neutral canonical IR → Java class generation | `output/ir/`, `output/java/` |
+| **L1** | Typed AST: `Program → Section → Paragraph → Statement` with source coordinates | `nodes` |
+| **L2** | Symbol table, data dictionary, canonical PIC type lowering, 88-level conditions | `data_items`, `conditions_88`, `copybook_use` |
+| **L3** | Intra-program CFG (PERFORM/FALLTHROUGH/GOTO/LOOP_BACK edges), def-use chains, cyclomatic complexity | `control_flow`, `def_use`, `complexity_metrics` |
+| **L4** | Inter-program call graph, CICS LINK/XCTL tx flow, file I/O, JCL–COBOL dataset binding, dynamic CALL constant propagation | `call_graph`, `transaction_flow`, `file_io`, `jcl_job`, `jcl_program_binding` |
+| **L5** | Business rules from IF/EVALUATE (with 88-level predicate resolution), arithmetic expression specs, data lineage | `business_rules`, `arithmetic_specs` |
+| **L6** | BMS screen map catalog, CSD program/transaction/file definitions | `screen_map`, `csd_catalog` |
+| **L7** | Parse coverage report, migration risk register with severity (HIGH/MEDIUM/LOW) | `parse_coverage`, `risk_register` |
 
----
-
-## UUID Stability
+### UUID Stability
 
 Every artifact node has a **deterministic uuid5** derived from its source coordinates:
 
@@ -157,7 +180,7 @@ key = f"{source_file}:{start_line}:{start_col}:{end_line}:{end_col}:{kind}:{name
 uuid = str(uuid.uuid5(NAMESPACE, key))
 ```
 
-Running the pipeline twice on identical input produces byte-identical UUID sets. Verify:
+Running the pipeline twice on identical input produces byte-identical UUID sets:
 
 ```bash
 python pipeline/batch.py --corpus ... --db /tmp/run1.db
@@ -169,17 +192,125 @@ diff <(sqlite3 /tmp/run1.db "SELECT uuid FROM nodes ORDER BY uuid") \
 
 ---
 
+## Pipeline Execution Flow
+
+```
+Phase 1 ─ COBOL parsing (parallel, N workers)
+   └── ingest_file()  →  ProLeap JAR  →  JSON CST  →  Layer 1 (nodes)  →  Layer 2 (data_items, conditions_88)
+
+Phase 2 ─ Intra-program graphs (sequential per program)
+   └── layer3_intra.persist()     →  control_flow, def_use, complexity_metrics
+   └── layer4_inter.persist()     →  call_graph (literal CALLs), transaction_flow
+   └── layer5_business.persist()  →  business_rules, arithmetic_specs
+   └── layer7_quality.build_risk_register()  →  risk_register
+
+Phase 3 ─ Inter-program resolution
+   └── layer4_inter.resolve_callees()  →  resolve dynamic CALL variables via def-use
+
+Phase 4 ─ JCL parsing
+   └── parse_jcl_file()  →  jcl_job, jcl_dd, jcl_dependency
+
+Phase 4b ─ JCL–COBOL dataset binding
+   └── layer4_inter.bind_jcl_to_cobol()  →  jcl_program_binding (DD name ↔ COBOL logical file)
+
+Phase 5 ─ BMS screen map parsing
+   └── parse_bms_file()  →  screen_map
+
+Phase 6 ─ CSD catalog parsing
+   └── parse_csd_file()  →  csd_catalog
+
+Phase 7 ─ Coverage report
+   └── layer7_quality.coverage_report()  →  parse_coverage
+
+Phase 8 ─ Mermaid diagrams
+   └── generate_all_diagrams()  →  output/diagrams/*.mmd
+```
+
+Topological COPY-dependency sorting ensures copybooks are processed before their dependents (Phase 1).
+
+---
+
+## LangGraph Spec Generation
+
+```
+retrieve_artifacts(uuid)            ← _best_prog_uuid() resolves duplicate nodes; assembles
+       ↓                              7-layer slice (paragraphs, data items, conditions_88,
+build_prompt(slice)                   CFG summary, CICS, JCL bindings, business rules, risks)
+       ↓
+generate_spec(prompt)               ← OpenAI gpt-4o  /  Gemini gemini-1.5-pro  /  Claude
+       ↓
+ground_check(spec, slice)           ← maps each claim → supporting artifact UUID
+       ↓
+emit_report(spec, grounding)        → output/specs/{program}.md
+```
+
+**Prompt templates** (Jinja2, no raw COBOL ever reaches the LLM):
+
+| Template | Coverage |
+|----------|----------|
+| `paragraph_spec.jinja2` | Paragraph, statements, data items, 88-level conditions, def-use, business rules, file I/O, control flow callers/callees |
+| `program_spec.jinja2` | All 7 layers: paragraph list, data item summary, complexity hotspots, CFG edge types, calls in/out, CICS interactions, JCL bindings, business rules, risk summary |
+| `job_chain_narrative.jinja2` | JCL job chain with dataset lineage |
+
+```bash
+# Via CLI
+python llm/demo_spec.py --program COTRN02C --scope program
+python llm/demo_spec.py --program COTRN02C --scope paragraph
+
+# Via API
+curl -X POST http://localhost:8000/generate-spec \
+  -H "Content-Type: application/json" \
+  -d '{"scope": "program", "program_name": "COTRN02C"}'
+```
+
+---
+
+## Java Forward Engineering
+
+Canonical IR lowers COBOL AST + symbol table into expression trees (not text blobs), then emits type-correct Java:
+
+| COBOL PIC / USAGE | Java type |
+|-------------------|-----------|
+| `S9(m)V9(n)` COMP-3 | `BigDecimal` (precision m+n, scale n, `RoundingMode.HALF_EVEN`) |
+| `9(n)` COMP / COMP-4 | `long` or `int` |
+| `X(n)` DISPLAY | `String` |
+| `9(n)` DISPLAY | `String` (zoned decimal, preserved as-is) |
+| PERFORM | Method call |
+| IF/EVALUATE | `if`/`switch` |
+| File I/O | Annotated stub methods |
+
+```bash
+# User Admin bounded context (COUSR01C, COUSR02C, COUSR03C)
+python ir/demo_emit.py
+
+# Specific program
+python ir/demo_emit.py --program COUSR01C
+
+# All ingested programs
+python ir/demo_emit.py --all
+```
+
+Output: `output/java/{ClassName}.java`
+
+---
+
 ## REST API
 
-All endpoints return JSON. The web UI at `http://localhost:8000` is the recommended interface.
+50+ endpoints. Interactive docs at **http://localhost:8000/docs**
+
+### Core endpoints
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/health` | Health check + DB status |
 | GET | `/stats` | Dashboard metrics (programs, paragraphs, coverage %, risks) |
 | GET | `/programs` | Paginated program list with search |
-| GET | `/programs/{name}` | Program metadata + node UUID |
+| GET | `/programs/{name}` | Program metadata + UUID |
 | GET | `/programs/{name}/detail` | Full program view (paragraphs, call graph, business rules, risks) |
+| GET | `/programs/{name}/cfg` | CFG as Mermaid flowchart + node/edge lists |
+| GET | `/programs/{name}/symbol-table` | Full data dictionary with type info |
+| GET | `/programs/{name}/complexity` | Cyclomatic complexity per paragraph |
+| GET | `/programs/{name}/source` | Original COBOL source with syntax highlighting |
 | GET | `/paragraphs/{uuid}` | Paragraph AST + statements |
 | GET | `/data-items/{uuid}` | Data item definition + canonical type |
 | GET | `/call-graph/{uuid}/callers` | Callers of this node |
@@ -190,93 +321,52 @@ All endpoints return JSON. The web UI at `http://localhost:8000` is the recommen
 | GET | `/file-access/{program_uuid}` | File I/O operations |
 | GET | `/transaction-flow/{trans_id}` | CICS transaction reachability graph |
 | GET | `/jcl/job-chain/{job_name}` | JCL job upstream/downstream via dataset reuse |
-| GET | `/copybooks/{name}/consumers` | Programs that include this copybook |
-| GET | `/reports/coverage` | Parse coverage by source type |
-| GET | `/reports/risk-register` | Migration risk register |
-| GET | `/diagrams/{name}` | Mermaid diagram source (call_graph, transaction_flow, jcl_job_chain, file_io_graph) |
-| POST | `/generate-spec` | LLM specification generation (OpenAI / Gemini) |
+| GET | `/jcl/bindings` | All JCL–COBOL file bindings |
+| GET | `/jcl/jobs` | All parsed JCL jobs and steps |
+| GET | `/copybooks/{name}/consumers` | Programs that COPY this copybook |
+| GET | `/layers/summary` | All 7 layers — counts, breakdowns, coverage |
+| GET | `/reports/coverage` | Per-file parse success/failure |
+| GET | `/reports/risk-register` | Migration risk register (severity-rated) |
+| GET | `/diagrams/{name}` | Live Mermaid source (call_graph, transaction_flow, jcl_job_chain, file_io_graph) |
+| POST | `/generate-spec` | LLM spec generation (program or paragraph scope) |
+| POST | `/generate-modernization-report` | Full 10-section holistic modernization report |
 | GET | `/emit-java/{program_name}` | Java class source generation |
 | POST | `/pipeline/run` | SSE-streamed full pipeline execution |
+| POST | `/pipeline/cancel` | Cancel running pipeline |
 
-Interactive API docs: **http://localhost:8000/docs**
+### Layer Explorer endpoints
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /layers/1/programs` | Browse Layer 1 programs |
+| `GET /layers/2/data-items` | Browse data items with type info |
+| `GET /layers/3/cfg-edges` | Browse CFG edges with paragraph names |
+| `GET /layers/4/call-graph` | Browse inter-program call edges |
+| `GET /layers/5/business-rules` | Browse business rules |
+| `GET /layers/6/bms-maps` | Browse BMS screen maps |
+| `GET /layers/6/csd` | Browse CSD catalog entries |
+| `GET /layers/7/risks` | Browse risk register with severity filter |
 
 ---
 
 ## Web Dashboard
 
-The single-page application at `http://localhost:8000` provides:
+Single-page TypeScript application at **http://localhost:8000**
 
 | Page | Features |
 |------|----------|
-| **Dashboard** | 8 stat cards, coverage donut chart, layer progress bar, championship rubric tracker |
-| **Run Pipeline** | Real-time SSE log stream, configurable corpus/copybook paths |
-| **Programs** | Searchable program table → detail panel with 6 tabs (paragraphs, data items, call graph, business rules, file I/O, risks) |
+| **Dashboard** | Stat cards, coverage donut chart, artifact layer bar chart, live championship rubric tracker |
+| **Run Pipeline** | Real-time SSE log stream, configurable paths, cancel button |
+| **Programs** | Searchable program table → detail panel with 7 tabs: Paragraphs, Data Items, Call Graph, Business Rules, File I/O, Source, Risks |
+| **Visualizations** | CFG Mermaid flowchart, symbol table, complexity metrics — all using duplicate-node-safe UUID resolution |
 | **Diagrams** | Live Mermaid.js rendering of call graph, transaction flow, JCL job chain, file I/O |
-| **Spec Generator** | Program/paragraph selector → LLM-generated grounded specification |
-| **Java Emitter** | One-click Java generation for User Admin bounded context (COUSR01C/02C/03C) |
+| **Spec Generator** | Program/paragraph selector → LangGraph spec with grounding score |
+| **Java Emitter** | One-click Java generation; displays source with syntax highlighting |
+| **Coverage** | Per-file parse status with error class breakdown |
+| **Risk Register** | 1,400 risks filterable by severity and kind |
+| **Layer Explorer** | Browse all 7 layers raw: data items, CFG edges, call graph, business rules, BMS maps, CSD, risks |
 | **LangGraph** | Visual state machine diagram of the agentic spec-generation workflow |
-| **Coverage** | Per-file parse success/failure with error class breakdown |
-| **Risk Register** | Severity-weighted migration risks filterable by kind |
-
----
-
-## LLM Specification Generation
-
-```bash
-# List all programs in the database
-python llm/demo_spec.py --list-programs
-
-# Generate a grounded program-level specification
-python llm/demo_spec.py --program COTRN02C --scope program
-
-# Generate a paragraph-level specification
-python llm/demo_spec.py --program COTRN02C --scope paragraph
-
-# Generate from a specific paragraph UUID
-python llm/demo_spec.py --uuid <paragraph-uuid>
-```
-
-Output saved to `output/specs/`. Every sentence in the generated spec is grounded to a specific artifact UUID.
-
-**LangGraph workflow:**
-
-```
-retrieve_artifacts(uuid)
-       ↓
-build_prompt(slice)
-       ↓
-generate_spec(prompt)     ←── OpenAI gpt-4o  or  Gemini gemini-1.5-pro
-       ↓
-ground_check(spec, slice) ←── maps each sentence → supporting UUID evidence
-       ↓
-emit_report(spec, grounding)
-```
-
----
-
-## Java Forward Engineering
-
-```bash
-# User Admin bounded context (COUSR01C, COUSR02C, COUSR03C)
-python ir/demo_emit.py
-
-# Specific programs
-python ir/demo_emit.py --program COUSR01C --program COUSR02C
-
-# All ingested programs
-python ir/demo_emit.py --all
-```
-
-**Type mapping (COBOL → Java):**
-
-| COBOL PIC / USAGE | Java type |
-|-------------------|-----------|
-| `S9(m)V9(n)` COMP-3 | `BigDecimal` (precision m+n, scale n, `RoundingMode.HALF_EVEN`) |
-| `9(n)` COMP / COMP-4 | `long` or `int` |
-| `X(n)` DISPLAY | `String` |
-| `9(n)` DISPLAY | `String` (zoned decimal, preserved as-is) |
-
-Output: `output/java/{ClassName}.java`
+| **Settings** | LLM provider / model selection, API key configuration |
 
 ---
 
@@ -288,27 +378,10 @@ pytest tests/ -v
 
 | Test file | What it covers |
 |-----------|----------------|
-| `test_uuid_stability.py` | UUID determinism — same input → identical UUID set |
+| `test_uuid_stability.py` | UUID determinism — same input → identical UUID set across two runs |
 | `test_preprocessor.py` | COPY/REPLACE expansion, provenance tracking, nested copybooks |
-| `test_layer1.py` | AST normalisation, type lowering, parent_uuid linkage |
+| `test_layer1.py` | AST normalisation, PIC type lowering, parent_uuid linkage |
 | `test_api.py` | FastAPI endpoint smoke tests against seeded in-memory SQLite |
-
----
-
-## Mermaid Diagrams
-
-```bash
-# Generate all four diagrams from the database
-python diagrams/mermaid_gen.py --db artifacts/pipeline.db
-
-# Output:
-output/diagrams/call_graph.mmd        # Program-to-program call relationships
-output/diagrams/transaction_flow.mmd  # CICS XCTL/LINK state machine
-output/diagrams/jcl_job_chain.mmd     # JCL job dataset dependency graph
-output/diagrams/file_io_graph.mmd     # Program ↔ file READ/WRITE operations
-```
-
-Diagrams are also renderable live in the web dashboard (Diagrams page).
 
 ---
 
@@ -317,14 +390,14 @@ Diagrams are also renderable live in the web dashboard (Diagrams page).
 | Component | Technology |
 |-----------|-----------|
 | COBOL parsing | ProLeap ANTLR4 COBOL85 grammar (Java, Apache 2.0) |
-| JCL / BMS / CSD parsing | Hand-written ANTLR4 grammars (Python runtime) |
-| Pipeline orchestration | Python 3.13, multiprocessing |
-| Graph store | SQLite 3 (WAL mode, 20 tables) |
-| UUID addressing | Python `uuid.uuid5` (deterministic) |
-| REST API | FastAPI + Uvicorn |
-| Web UI | Vanilla JS + Tailwind CSS + Chart.js + Mermaid.js + Highlight.js |
-| LLM integration | LangGraph state machine, OpenAI gpt-4o / Gemini gemini-1.5-pro |
-| Java emission | Custom canonical IR + BigDecimal/RoundingMode emitter |
+| JCL / BMS / CSD parsing | ANTLR4 grammars + Python runtime |
+| CICS / SQL extraction | Keyword-driven verb+parameter tokenizer |
+| Pipeline orchestration | Python 3.13, `ThreadPoolExecutor` (parallel Phase 1) |
+| Graph store | SQLite 3 (WAL mode, 20 tables, deterministic uuid5) |
+| REST API | FastAPI + Uvicorn (SSE streaming, 50+ endpoints) |
+| Web UI | TypeScript + Vite + Tailwind CSS + Chart.js + Mermaid.js v10 + Highlight.js |
+| LLM integration | LangGraph 5-node state machine; OpenAI / Gemini / Anthropic |
+| Java emission | Canonical IR expression trees → BigDecimal/RoundingMode emitter |
 | AI development agent | **Claude Code** (Anthropic, claude-sonnet-4-6) |
 
 ---
