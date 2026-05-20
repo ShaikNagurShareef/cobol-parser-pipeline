@@ -46,7 +46,7 @@ def persist(
             # ── IF predicates → business rules ──
             if kind == "Stmt_IF":
                 predicate = _extract_if_condition(text)
-                resolved = _resolve_predicate(predicate, data_items)
+                resolved = _resolve_predicate(predicate, data_items, con)
                 rule_uuid = make_uuid(source_file, line, 0, line, 0, "BusinessRule", predicate[:40])
                 rule = {
                     "uuid": rule_uuid,
@@ -143,11 +143,37 @@ def _extract_if_condition(text: str) -> str:
     return text[:100]
 
 
-def _resolve_predicate(predicate: str, item_uuids: dict[str, str]) -> dict:
-    """Build a simple resolved predicate dict linking identifiers to UUIDs."""
+def _resolve_predicate(
+    predicate: str,
+    item_uuids: dict[str, str],
+    con: sqlite3.Connection | None = None,
+) -> dict:
+    """Build a resolved predicate dict, expanding 88-level condition names."""
     tokens = re.findall(r"[A-Z][A-Z0-9-]{2,}", predicate.upper())
     refs = {t: item_uuids[t] for t in tokens if t in item_uuids}
-    return {"raw": predicate, "data_item_refs": refs}
+    resolved_text = predicate
+
+    if con:
+        for token in tokens:
+            # Look up level-88 condition by name
+            row = con.execute(
+                """
+                SELECT c.name, c.value_raw, d.name AS parent_name
+                FROM conditions_88 c
+                JOIN data_items d ON d.uuid = c.parent_uuid
+                WHERE UPPER(c.name) = ?
+                """,
+                (token,),
+            ).fetchone()
+            if row:
+                parent = row["parent_name"]
+                vals = row["value_raw"] or ""
+                resolved_text = resolved_text.replace(
+                    token, f"{parent} = {vals}"
+                )
+                refs[token] = f"88-level:{parent}={vals}"
+
+    return {"raw": predicate, "resolved": resolved_text, "data_item_refs": refs}
 
 
 def _summarize_branch(text: str, branch: str) -> str:

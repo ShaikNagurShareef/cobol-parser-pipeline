@@ -150,7 +150,7 @@ def _lower_stmts(stmts: list[dict], field_map: dict) -> list[dict]:
                            "value": {"ir": "Expr", "expression": expr}})
 
         elif kind in ("Stmt_ADD", "Stmt_SUBTRACT", "Stmt_MULTIPLY", "Stmt_DIVIDE"):
-            result.append({"ir": "ArithOp", "kind": kind.replace("Stmt_", ""), "text": text[:80]})
+            result.append(_parse_arith_expr(kind.replace("Stmt_", ""), text))
 
         elif kind == "Stmt_IF":
             cond = _extract_condition(text)
@@ -225,3 +225,54 @@ def _extract_condition(text: str) -> str:
 def _extract_perform_target(text: str) -> str:
     m = re.search(r"PERFORM\s+([A-Z0-9-]+)", text, re.IGNORECASE)
     return m.group(1) if m else ""
+
+
+def _parse_arith_expr(op: str, text: str) -> dict:
+    """G5: Parse an arithmetic statement into a structured expression tree."""
+    t = text.upper()
+    node: dict = {"ir": "ArithOp", "op": op.lower()}
+
+    if op == "ADD":
+        giving = re.search(r"\bGIVING\s+([A-Z0-9-]+)", t)
+        if giving:
+            operands = re.findall(r"\bADD\s+(.+?)\s+GIVING\b", t)
+            node["operands"] = operands[0].split() if operands else []
+            node["result"] = _java_name(giving.group(1))
+        else:
+            m = re.search(r"\bADD\s+(.+?)\s+TO\s+([A-Z0-9-]+)", t)
+            if m:
+                node["operands"] = m.group(1).split()
+                node["result"] = _java_name(m.group(2))
+    elif op == "SUBTRACT":
+        giving = re.search(r"\bGIVING\s+([A-Z0-9-]+)", t)
+        if giving:
+            m = re.search(r"\bSUBTRACT\s+(.+?)\s+FROM\s+(.+?)\s+GIVING\b", t)
+            if m:
+                node["subtrahend"] = m.group(1).strip()
+                node["minuend"] = m.group(2).strip()
+                node["result"] = _java_name(giving.group(1))
+        else:
+            m = re.search(r"\bSUBTRACT\s+(.+?)\s+FROM\s+([A-Z0-9-]+)", t)
+            if m:
+                node["subtrahend"] = m.group(1).strip()
+                node["result"] = _java_name(m.group(2))
+    elif op == "MULTIPLY":
+        giving = re.search(r"\bGIVING\s+([A-Z0-9-]+)", t)
+        m = re.search(r"\bMULTIPLY\s+([A-Z0-9-]+)\s+BY\s+([A-Z0-9-]+)", t)
+        if m:
+            node["operands"] = [m.group(1), m.group(2)]
+            node["result"] = _java_name(giving.group(1) if giving else m.group(2))
+    elif op == "DIVIDE":
+        giving = re.search(r"\bGIVING\s+([A-Z0-9-]+)", t)
+        rem = re.search(r"\bREMAINDER\s+([A-Z0-9-]+)", t)
+        m = re.search(r"\bDIVIDE\s+([A-Z0-9-]+)\s+(?:INTO|BY)\s+([A-Z0-9-]+)", t)
+        if m:
+            node["divisor"] = m.group(1)
+            node["dividend"] = m.group(2)
+            node["result"] = _java_name(giving.group(1) if giving else m.group(2))
+            if rem:
+                node["remainder"] = _java_name(rem.group(1))
+
+    if "result" not in node:
+        node["raw"] = text[:80]
+    return node

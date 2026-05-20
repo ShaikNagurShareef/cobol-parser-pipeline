@@ -36,16 +36,19 @@ def persist(
     prog_uuid = prog_node["uuid"]
 
     data_items: list[dict] = []
+    last_non88_uuid: str | None = None  # G1: track parent for 88-level items
+
     for node in nodes:
         if node["kind"] != "DataItem":
             continue
         p = node.get("payload", {})
         ct = p.get("canonical_type", {})
+        level = p.get("level", -1)
         item = {
             "uuid": node["uuid"],
             "program_uuid": prog_uuid,
             "name": node["name"],
-            "level": p.get("level", -1),
+            "level": level,
             "pic": p.get("pic"),
             "usage": p.get("usage"),
             "sign": p.get("sign"),
@@ -71,6 +74,13 @@ def persist(
 
         data_items.append(item)
         _upsert_data_item(con, item)
+
+        # G1: populate conditions_88 for level-88 condition names
+        if level == 88 and last_non88_uuid:
+            _upsert_condition_88(con, node["uuid"], last_non88_uuid,
+                                 node["name"], p.get("value_raw"))
+        else:
+            last_non88_uuid = node["uuid"]
 
     # Copybook usage
     for cs in copy_statements:
@@ -100,6 +110,19 @@ def persist(
     }
     (out / f"{program_name}.json").write_text(
         json.dumps(artifact, indent=2, ensure_ascii=False)
+    )
+
+
+def _upsert_condition_88(
+    con: sqlite3.Connection,
+    uuid: str,
+    parent_uuid: str,
+    name: str,
+    value_raw: str | None,
+) -> None:
+    con.execute(
+        "INSERT OR REPLACE INTO conditions_88 (uuid, parent_uuid, name, value_raw) VALUES (?,?,?,?)",
+        (uuid, parent_uuid, name, value_raw),
     )
 
 

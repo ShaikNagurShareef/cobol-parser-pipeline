@@ -11,7 +11,7 @@ from storage.db import init_db, transaction
 from storage.uuid_gen import make_named_uuid
 
 _MSD_RE  = re.compile(r"DFHMSD\s+TYPE=MAP|DFHMSD\s+TYPE=&SYSPARM", re.IGNORECASE)
-_MDI_RE  = re.compile(r"([A-Z0-9]{1,7})\s+DFHMDI\s+SIZE=\((\d+),(\d+)\)", re.IGNORECASE)
+_MDI_RE  = re.compile(r"([A-Z0-9]{1,7})\s+DFHMDI\b.*?SIZE=\((\d+),(\d+)\)", re.IGNORECASE | re.DOTALL)
 _MDF_RE  = re.compile(r"([A-Z0-9]{1,7})\s+DFHMDF\s+", re.IGNORECASE)
 _POS_RE  = re.compile(r"POS=\((\d+),(\d+)\)", re.IGNORECASE)
 _LEN_RE  = re.compile(r"LENGTH=(\d+)", re.IGNORECASE)
@@ -85,12 +85,25 @@ def parse_bms_file(bms_file: pathlib.Path, db_path: pathlib.Path) -> dict:
 
 
 def _join_continuations(lines: list[str]) -> list[str]:
+    """Join HLASM continuation lines (trailing '-' or ',' means more follows)."""
     result: list[str] = []
     for line in lines:
-        if line.endswith(",") or line.endswith("X") and len(line) >= 71:
-            result.append(line.rstrip("X").rstrip(",") + " ")
-        elif result and result[-1].endswith(" "):
-            result[-1] += line.strip()
+        stripped = line.rstrip()
+        is_cont = (
+            stripped.endswith("-")
+            or stripped.endswith(",")
+            or (stripped.endswith("X") and len(stripped) >= 71)
+        )
+        # Remove the continuation marker and trailing whitespace
+        core = stripped.rstrip("-").rstrip("X").rstrip(",").rstrip()
+
+        if result and result[-1].endswith(" "):
+            # Previous line was a continuation — append this content to it
+            result[-1] = result[-1].rstrip() + " " + stripped.strip().rstrip("-").rstrip(",").rstrip()
+            if is_cont:
+                result[-1] += " "  # mark that this line also continues
+        elif is_cont:
+            result.append(core + " ")
         else:
-            result.append(line)
+            result.append(stripped)
     return result

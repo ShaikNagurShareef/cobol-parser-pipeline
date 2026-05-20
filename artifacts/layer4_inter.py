@@ -42,14 +42,13 @@ def persist_program(
         is_literal = cs.get("literal", False)
         call_type = "CALL_LITERAL" if is_literal else "CALL_DYNAMIC"
         callee_uuid = _resolve_program_uuid(con, callee_name) if is_literal else None
-        site_uuid = _make_site_uuid(source_file, cs.get("start_line", 0), callee_name)
         con.execute(
             """
             INSERT INTO call_graph
                 (caller_uuid, callee_name, callee_uuid, call_site_uuid, call_type, is_resolved)
             VALUES (?,?,?,?,?,?)
             """,
-            (prog_uuid, callee_name, callee_uuid, site_uuid,
+            (prog_uuid, callee_name, callee_uuid, None,
              call_type, int(callee_uuid is not None)),
         )
 
@@ -152,14 +151,21 @@ def persist_program(
 def resolve_callees(con: sqlite3.Connection) -> int:
     """Second pass: resolve previously unresolved callee UUIDs.
 
+    Includes G4 constant propagation: for CALL-by-variable, scan MOVE
+    statements that wrote a string literal into the call-target variable.
+
     Returns number of newly resolved edges.
     """
     rows = con.execute(
-        "SELECT id, callee_name FROM call_graph WHERE is_resolved=0"
+        "SELECT id, caller_uuid, callee_name FROM call_graph WHERE is_resolved=0"
     ).fetchall()
     resolved = 0
     for row in rows:
-        uid = _resolve_program_uuid(con, row["callee_name"])
+        callee_name = row["callee_name"]
+        uid = _resolve_program_uuid(con, callee_name)
+        if not uid:
+            # G4: try constant propagation via def-use / MOVE statements
+            uid = _constant_propagate_callee(con, row["caller_uuid"], callee_name)
         if uid:
             con.execute(
                 "UPDATE call_graph SET callee_uuid=?, is_resolved=1 WHERE id=?",
@@ -167,6 +173,192 @@ def resolve_callees(con: sqlite3.Connection) -> int:
             )
             resolved += 1
     return resolved
+
+
+def _constant_propagate_callee(
+    con: sqlite3.Connection, caller_uuid: str, var_name: str
+) -> str | None:
+    """G4: trace MOVE '<LITERAL>' TO <var_name> in the caller to resolve callee."""
+    rows = con.execute(
+        """
+        SELECT n.payload_json
+        FROM def_use du
+        JOIN nodes n ON n.uuid = du.stmt_uuid
+        WHERE du.op = 'WRITE'
+          AND n.kind = 'Stmt_MOVE'
+          AND n.parent_uuid IN (
+              SELECT uuid FROM nodes WHERE parent_uuid=? AND kind='Paragraph'
+          )
+        """,
+        (caller_uuid,),
+    ).fetchall()
+    for row in rows:
+        try:
+            payload = json.loads(row["payload_json"] or "{}")
+            text = payload.get("text", "")
+        except Exception:
+            continue
+        m = re.search(
+            r"MOVE\s+['\"]([A-Z][A-Z0-9]{2,})['\"].*\bTO\b.*" + re.escape(var_name.upper()),
+            text.upper(),
+        )
+        if m:
+            uid = _resolve_program_uuid(con, m.group(1))
+            if uid:
+                return uid
+    return None
+
+
+def bind_jcl_to_cobol(con: sqlite3.Connection) -> int:
+    """G3: Match JCL DD names to COBOL logical file names.
+
+    Uses file_control data from the program node payload to build a rich
+    index of logical name → assign-to, then matches JCL DD names against
+    normalized forms (strip ASSIGNTO prefix, FILE suffix, hyphens).
+
+    Returns the number of bindings created.
+    """
+    # Ensure target table exists
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS jcl_program_binding (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_name            TEXT NOT NULL,
+            step_name           TEXT,
+            program_name        TEXT NOT NULL,
+            dd_name             TEXT NOT NULL,
+            dataset_name        TEXT,
+            disposition         TEXT,
+            cobol_logical_file  TEXT,
+            program_uuid        TEXT REFERENCES nodes(uuid)
+        )
+        """
+    )
+    # Clear previous run results to avoid duplicates on re-run
+    con.execute("DELETE FROM jcl_program_binding")
+
+    steps = con.execute(
+        "SELECT DISTINCT job_name, step_name, program FROM jcl_job WHERE program IS NOT NULL"
+    ).fetchall()
+
+    count = 0
+    for step in steps:
+        prog_name = (step["program"] or "").upper()
+        prog_uuid = _resolve_program_uuid(con, prog_name)
+        if not prog_uuid:
+            continue
+
+        # Build a rich file index from the program node's file_control payload
+        file_name_set = _build_file_index_for_program(con, prog_uuid)
+
+        # DDs for this step
+        dds = con.execute(
+            """
+            SELECT dd.dd_name, dd.dataset, dd.disposition
+            FROM jcl_dd dd
+            JOIN jcl_job j ON j.step_uuid = dd.step_uuid
+            WHERE j.job_name=? AND j.step_name=?
+            """,
+            (step["job_name"], step["step_name"]),
+        ).fetchall()
+
+        for dd in dds:
+            dd_key = (dd["dd_name"] or "").upper()
+            cobol_file = _match_dd_to_cobol_file(dd_key, file_name_set)
+
+            con.execute(
+                """
+                INSERT INTO jcl_program_binding
+                    (job_name, step_name, program_name, dd_name,
+                     dataset_name, disposition, cobol_logical_file, program_uuid)
+                VALUES (?,?,?,?,?,?,?,?)
+                """,
+                (
+                    step["job_name"], step["step_name"], prog_name,
+                    dd["dd_name"], dd["dataset"], dd["disposition"],
+                    cobol_file, prog_uuid,
+                ),
+            )
+            count += 1
+    return count
+
+
+def _build_file_index_for_program(
+    con: sqlite3.Connection, prog_uuid: str
+) -> dict[str, str]:
+    """Build a normalized-key → logical_name index for a program's files.
+
+    Sources: program node payload file_control + existing file_io rows.
+    Keys are normalized: no hyphens, ASSIGNTO/UT-S-/LIT- prefixes stripped,
+    -FILE suffix stripped.
+    """
+    index: dict[str, str] = {}
+
+    def _add(raw_name: str, canonical: str) -> None:
+        """Add raw_name and normalized variants to index."""
+        n = raw_name.upper()
+        index[n] = canonical
+        # Strip common COBOL ASSIGN TO prefixes
+        for prefix in ("ASSIGNTO", "LIT-", "UT-S-", "DA-", "AS-", "UT-"):
+            if n.startswith(prefix):
+                n = n[len(prefix):]
+                index[n] = canonical
+                break
+        # Strip common suffixes: -FILE, -FILENAME
+        for suffix in ("-FILENAME", "-FILE"):
+            if n.endswith(suffix):
+                index[n[: -len(suffix)]] = canonical
+                break
+        # Also index with all hyphens removed
+        no_hyph = n.replace("-", "")
+        index[no_hyph] = canonical
+
+    # First from file_io (lower priority — may have non-canonical names)
+    for lf in con.execute(
+        "SELECT DISTINCT file_name, logical_name FROM file_io WHERE program_uuid=?",
+        (prog_uuid,),
+    ).fetchall():
+        fn = (lf["logical_name"] or lf["file_name"] or "").upper()
+        if fn:
+            _add(fn, lf["logical_name"] or lf["file_name"])
+
+    # Then file_control from program node payload (higher priority — has proper SELECT names)
+    # This second pass overwrites any file_io-derived entries with the canonical logical name
+    row = con.execute(
+        "SELECT payload_json FROM nodes WHERE uuid=? AND kind='Program'",
+        (prog_uuid,),
+    ).fetchone()
+    if row:
+        try:
+            payload = json.loads(row["payload_json"] or "{}")
+            for fc in payload.get("file_control", []):
+                logical = (fc.get("name") or "").upper()
+                assign_to = (fc.get("assign_to") or logical).upper()
+                if logical:
+                    _add(logical, logical)
+                if assign_to and assign_to != logical:
+                    _add(assign_to, logical)
+        except Exception:
+            pass
+
+    return index
+
+
+def _match_dd_to_cobol_file(dd_key: str, index: dict[str, str]) -> str | None:
+    """Match a JCL DD name to a COBOL logical file name via the index."""
+    # Direct or normalized lookup
+    result = index.get(dd_key)
+    if result:
+        return result
+    # Substring fallback: DD key contained in or containing any index key
+    dd_no_hyph = dd_key.replace("-", "")
+    for key, val in index.items():
+        key_no_hyph = key.replace("-", "")
+        if dd_no_hyph == key_no_hyph:
+            return val
+        if len(dd_no_hyph) >= 4 and (dd_no_hyph in key_no_hyph or key_no_hyph in dd_no_hyph):
+            return val
+    return None
 
 
 def emit_artifact(con: sqlite3.Connection, output_dir: pathlib.Path | None = None) -> None:

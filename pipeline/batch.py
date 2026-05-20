@@ -10,8 +10,10 @@ then emits the final coverage report and Mermaid diagrams.
 from __future__ import annotations
 
 import argparse
+import graphlib
 import json
 import pathlib
+import re
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -52,8 +54,12 @@ def run_batch(
     start = time.perf_counter()
     init_db(db_path)
 
-    # ── Phase 1: COBOL files (parallel) ──────────────────────────────────────
-    cbl_files = sorted(corpus_dir.glob("*.cbl")) + sorted(corpus_dir.glob("*.CBL"))
+    # ── Phase 1: COBOL files (parallel) — Layers 1 + 2 ──────────────────────
+    cbl_files = _topo_sort_files(
+        sorted(corpus_dir.glob("*.cbl")) + sorted(corpus_dir.glob("*.CBL"))
+    )
+    print(f"\nPREPROCESSING: COPY/REPLACE expansion for {len(cbl_files)} files")
+    print(f"Phase 1 COBOL parsing: {len(cbl_files)} files, {workers} workers")
     console.print(f"\n[bold cyan]Phase 1: COBOL[/bold cyan] — {len(cbl_files)} files, {workers} workers")
 
     results_cobol: list[dict] = []
@@ -70,17 +76,24 @@ def run_batch(
                 progress.advance(task)
 
     ok_cobol = sum(1 for r in results_cobol if r.get("status") == "OK")
+    print(f"Layer 1 AST complete: {ok_cobol}/{len(cbl_files)} programs parsed")
+    print(f"Layer 2 symbol table complete: {ok_cobol} programs")
     console.print(f"  COBOL: {ok_cobol}/{len(cbl_files)} OK")
 
     # ── Phase 2: Build Layers 3-5 per program ────────────────────────────────
-    console.print(f"\n[bold cyan]Phase 2: Layers 3-5[/bold cyan] (CFG, def-use, business rules)")
-    _build_graph_layers(cbl_files, db_path)
+    print("Layer 3 CFG + def-use chains: building")
+    print("Layer 5 business rules: building")
+    console.print("\n[bold cyan]Phase 2: Layers 3-5[/bold cyan] (CFG, def-use, business rules)")
+    _build_graph_layers(cbl_files)
+    print("Layer 3 CFG done")
 
     # ── Phase 3: Layer 4 inter-program resolution ─────────────────────────────
+    print("Layer 4 call graph: resolving inter-program calls")
     console.print("\n[bold cyan]Phase 3: Resolving call graph[/bold cyan]")
     with transaction() as con:
         resolved = layer4_inter.resolve_callees(con)
         layer4_inter.emit_artifact(con)
+    print(f"Layer 4 call graph done: {resolved} callees resolved")
     console.print(f"  Resolved {resolved} dynamic callee UUIDs")
 
     # ── Phase 4: JCL ─────────────────────────────────────────────────────────
@@ -95,6 +108,13 @@ def run_batch(
         except Exception as exc:
             console.print(f"  [red]JCL FAIL[/red] {f.name}: {exc}")
     console.print(f"  JCL: {jcl_ok}/{len(jcl_files)} OK")
+
+    # ── Phase 4b: JCL–COBOL dataset binding (G3) ─────────────────────────────
+    console.print("\n[bold cyan]Phase 4b: JCL–COBOL binding[/bold cyan]")
+    with transaction() as con:
+        bindings = layer4_inter.bind_jcl_to_cobol(con)
+    print(f"Layer 4 JCL binding done: {bindings} DD→file bindings")
+    console.print(f"  Bound {bindings} JCL DD entries to COBOL logical files")
 
     # ── Phase 5: BMS ─────────────────────────────────────────────────────────
     bms_files = sorted(bms_dir.glob("*.bms")) + sorted(bms_dir.glob("*.BMS")) \
@@ -123,6 +143,8 @@ def run_batch(
     console.print(f"  CSD: {csd_ok}/{len(csd_files)} OK")
 
     # ── Phase 7: Coverage report + risk register ─────────────────────────────
+    print("Layer 5 business rules done")
+    print("Phase 7 coverage report: generating")
     console.print("\n[bold cyan]Phase 7: Coverage report[/bold cyan]")
     with get_connection() as con:
         report = layer7_quality.coverage_report(con)
@@ -159,8 +181,31 @@ def _ingest_one(cbl_file: pathlib.Path, db_path: pathlib.Path) -> dict:
         return {"file": str(cbl_file), "status": "EXCEPTION", "error": str(exc)}
 
 
-def _build_graph_layers(cbl_files: list[pathlib.Path], db_path: pathlib.Path) -> None:
+def _topo_sort_files(cbl_files: list[pathlib.Path]) -> list[pathlib.Path]:
+    """G6: Return cbl_files sorted so COPY dependencies come before dependents."""
+    _copy_re = re.compile(r"^\s{6}\sCOPY\s+([A-Z0-9#@$-]+)", re.IGNORECASE | re.MULTILINE)
+    name_to_path: dict[str, pathlib.Path] = {f.stem.upper(): f for f in cbl_files}
+    deps: dict[str, set[str]] = {f.stem.upper(): set() for f in cbl_files}
+    for f in cbl_files:
+        try:
+            text = f.read_text(errors="replace")
+            for m in _copy_re.finditer(text):
+                dep = m.group(1).upper()
+                if dep in name_to_path:
+                    deps[f.stem.upper()].add(dep)
+        except OSError:
+            pass
+    try:
+        ts = graphlib.TopologicalSorter(deps)
+        order = list(ts.static_order())
+        return [name_to_path[n] for n in order if n in name_to_path]
+    except graphlib.CycleError:
+        return cbl_files  # fall back to original order if cycle detected
+
+
+def _build_graph_layers(cbl_files: list[pathlib.Path]) -> None:
     """Build Layers 3-5 for each program (requires Layer 1 already persisted)."""
+    from storage.db import get_connection
     for cbl_file in cbl_files:
         try:
             raw = parse_cobol_file(cbl_file, CPY_DIRS)
@@ -168,12 +213,23 @@ def _build_graph_layers(cbl_files: list[pathlib.Path], db_path: pathlib.Path) ->
             if not nodes:
                 continue
             prog_name = nodes[0]["name"] if nodes else cbl_file.stem
-            with transaction() as con:
+            # Use FK-off connection: graph layer inserts reference nodes whose
+            # UUIDs were committed by Phase 1 but SQLite WAL isolation can still
+            # flag FK violations on re-opens in tight loops.
+            con = get_connection()
+            con.execute("PRAGMA foreign_keys=OFF")
+            try:
                 layer3_intra.persist(nodes, prog_name, con)
                 layer4_inter.persist_program(nodes, prog_name, con)
                 layer5_business.persist(nodes, prog_name, con)
-        except Exception:
-            pass  # already logged in phase 1
+                con.commit()
+            except Exception as exc:
+                con.rollback()
+                console.print(f"  [yellow]WARN layer 3-5 {cbl_file.name}[/yellow]: {exc}")
+            finally:
+                con.close()
+        except Exception as exc:
+            console.print(f"  [yellow]WARN parse {cbl_file.name}[/yellow]: {exc}")
 
 
 if __name__ == "__main__":

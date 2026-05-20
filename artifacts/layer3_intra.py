@@ -99,12 +99,29 @@ def persist(
             elif kind == "Stmt_IF":
                 cyclomatic += 1
                 nesting = max(nesting, 1)
+                # G2: emit BRANCH_TRUE / BRANCH_FALSE from Java-extracted perform lists
+                for target in [t.upper() for t in payload.get("then_performs", [])]:
+                    if target in para_by_name:
+                        _add_cfg(con, para_uuid, para_by_name[target]["uuid"],
+                                 "BRANCH_TRUE", source_file)
+                        cfg_edges.append({"from": para["name"], "to": target, "type": "BRANCH_TRUE"})
+                for target in [t.upper() for t in payload.get("else_performs", [])]:
+                    if target in para_by_name:
+                        _add_cfg(con, para_uuid, para_by_name[target]["uuid"],
+                                 "BRANCH_FALSE", source_file)
+                        cfg_edges.append({"from": para["name"], "to": target, "type": "BRANCH_FALSE"})
 
             elif kind == "Stmt_EVALUATE":
                 # Count WHEN clauses (each adds a branch)
                 text = payload.get("text", "")
                 when_count = len(re.findall(r"\bWHEN\b", text, re.IGNORECASE))
                 cyclomatic += max(1, when_count)
+                # G2: emit BRANCH_WHEN edges for PERFORM targets inside EVALUATE text
+                for target in _extract_perform_targets(text):
+                    if target in para_by_name:
+                        _add_cfg(con, para_uuid, para_by_name[target]["uuid"],
+                                 "BRANCH_WHEN", source_file)
+                        cfg_edges.append({"from": para["name"], "to": target, "type": "BRANCH_WHEN"})
 
             elif kind == "Stmt_EXEC_CICS":
                 verb = payload.get("verb", "")
@@ -186,6 +203,20 @@ def _add_du(con: sqlite3.Connection, item_uuid: str, stmt_uuid: str,
 
 
 _IDENT_RE = re.compile(r"\b([A-Z][A-Z0-9-]{2,})\b")
+_PERFORM_TARGET_RE = re.compile(r"\bPERFORM\s+([A-Z][A-Z0-9-]+)", re.IGNORECASE)
+
+
+def _split_if_branches(text: str) -> tuple[str, str]:
+    """Split IF statement text into (then_text, else_text) at the outermost ELSE."""
+    m = re.search(r"\bELSE\b", text, re.IGNORECASE)
+    if m:
+        return text[: m.start()], text[m.end() :]
+    return text, ""
+
+
+def _extract_perform_targets(text: str) -> list[str]:
+    """Return uppercase paragraph names referenced by PERFORM in text."""
+    return [m.group(1).upper() for m in _PERFORM_TARGET_RE.finditer(text)]
 
 
 def _extract_identifiers(text: str) -> list[str]:

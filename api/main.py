@@ -11,6 +11,10 @@ import sys
 import time
 from typing import AsyncGenerator
 
+# Load .env before anything else
+from dotenv import load_dotenv
+load_dotenv(pathlib.Path(__file__).parent.parent / ".env")
+
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 
 from fastapi import FastAPI, HTTPException, Query
@@ -37,6 +41,9 @@ PROJECT_ROOT = pathlib.Path(__file__).parent.parent
 DEFAULT_DB = pathlib.Path(os.environ.get("PIPELINE_DB", str(PROJECT_ROOT / "artifacts" / "pipeline.db")))
 UI_DIR = PROJECT_ROOT / "ui"
 
+# Active pipeline process (for cancel support)
+_pipeline_proc: asyncio.subprocess.Process | None = None
+
 
 def _con():
     return get_connection(DEFAULT_DB)
@@ -52,6 +59,127 @@ def _rows_to_list(rows) -> list[dict]:
 
 def _db_exists() -> bool:
     return DEFAULT_DB.exists() and DEFAULT_DB.stat().st_size > 0
+
+
+# ── Settings & Model selection ─────────────────────────────────────────────────
+
+@app.get("/settings", tags=["Settings"])
+def get_settings():
+    """Return current runtime configuration (no secret key values)."""
+    return {
+        "llm_provider":    os.environ.get("LLM_PROVIDER", "openai"),
+        "openai_model":    os.environ.get("OPENAI_MODEL", "gpt-4o"),
+        "gemini_model":    os.environ.get("GEMINI_MODEL", "gemini-1.5-pro"),
+        "pipeline_workers": int(os.environ.get("PIPELINE_WORKERS", "4")),
+        "openai_key_set":  bool(os.environ.get("OPENAI_API_KEY")),
+        "gemini_key_set":  bool(os.environ.get("GEMINI_API_KEY")),
+    }
+
+
+@app.post("/settings", tags=["Settings"])
+def update_settings(body: dict):
+    """Update runtime model/provider selection (persists to .env file)."""
+    env_path = PROJECT_ROOT / ".env"
+    env_lines = env_path.read_text().splitlines() if env_path.exists() else []
+
+    updates = {}
+    if "llm_provider" in body:
+        updates["LLM_PROVIDER"] = str(body["llm_provider"])
+        os.environ["LLM_PROVIDER"] = updates["LLM_PROVIDER"]
+    if "openai_model" in body:
+        updates["OPENAI_MODEL"] = str(body["openai_model"])
+        os.environ["OPENAI_MODEL"] = updates["OPENAI_MODEL"]
+    if "gemini_model" in body:
+        updates["GEMINI_MODEL"] = str(body["gemini_model"])
+        os.environ["GEMINI_MODEL"] = updates["GEMINI_MODEL"]
+    if "openai_api_key" in body and body["openai_api_key"]:
+        updates["OPENAI_API_KEY"] = str(body["openai_api_key"])
+        os.environ["OPENAI_API_KEY"] = updates["OPENAI_API_KEY"]
+    if "gemini_api_key" in body and body["gemini_api_key"]:
+        updates["GEMINI_API_KEY"] = str(body["gemini_api_key"])
+        os.environ["GEMINI_API_KEY"] = updates["GEMINI_API_KEY"]
+
+    # Patch the .env file
+    updated_keys: set[str] = set()
+    new_lines: list[str] = []
+    for line in env_lines:
+        stripped = line.strip()
+        matched = False
+        for key, val in updates.items():
+            if stripped.startswith(key + "=") or stripped.startswith(f"# {key}="):
+                new_lines.append(f"{key}={val}")
+                updated_keys.add(key)
+                matched = True
+                break
+        if not matched:
+            new_lines.append(line)
+    # Append any keys not already in the file
+    for key, val in updates.items():
+        if key not in updated_keys:
+            new_lines.append(f"{key}={val}")
+    env_path.write_text("\n".join(new_lines) + "\n")
+
+    return {"ok": True, "updated": list(updates.keys())}
+
+
+@app.get("/models", tags=["Settings"])
+async def list_models():
+    """Fetch available models from the configured LLM provider."""
+    import httpx
+
+    provider = os.environ.get("LLM_PROVIDER", "openai").lower()
+
+    if provider == "openai":
+        api_key = os.environ.get("OPENAI_API_KEY", "")
+        if not api_key:
+            return {"provider": "openai", "models": _default_openai_models(), "error": "OPENAI_API_KEY not set — showing defaults"}
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                r = await client.get(
+                    "https://api.openai.com/v1/models",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                )
+                r.raise_for_status()
+                data = r.json()
+                # Filter to chat-capable models, sorted by id
+                models = sorted(
+                    [m["id"] for m in data.get("data", [])
+                     if any(tag in m["id"] for tag in ("gpt-4", "gpt-3.5", "o1", "o3", "o4"))],
+                )
+                return {"provider": "openai", "models": models or _default_openai_models()}
+        except Exception as exc:
+            return {"provider": "openai", "models": _default_openai_models(), "error": str(exc)}
+
+    elif provider == "gemini":
+        api_key = os.environ.get("GEMINI_API_KEY", "")
+        if not api_key:
+            return {"provider": "gemini", "models": _default_gemini_models(), "error": "GEMINI_API_KEY not set — showing defaults"}
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                r = await client.get(
+                    f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}",
+                )
+                r.raise_for_status()
+                data = r.json()
+                models = sorted([
+                    m["name"].replace("models/", "")
+                    for m in data.get("models", [])
+                    if "generateContent" in m.get("supportedGenerationMethods", [])
+                    and "gemini" in m.get("name", "")
+                ])
+                return {"provider": "gemini", "models": models or _default_gemini_models()}
+        except Exception as exc:
+            return {"provider": "gemini", "models": _default_gemini_models(), "error": str(exc)}
+
+    return {"provider": provider, "models": [], "error": f"Unknown provider: {provider}"}
+
+
+def _default_openai_models() -> list[str]:
+    return ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4", "gpt-3.5-turbo", "o1", "o3-mini", "o4-mini"]
+
+
+def _default_gemini_models() -> list[str]:
+    return ["gemini-2.5-pro", "gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.5-flash", "gemini-1.0-pro"]
 
 
 # ── Dashboard stats ───────────────────────────────────────────────────────────
@@ -99,7 +227,6 @@ def list_programs(
     limit: int = Query(200, le=1000),
     offset: int = Query(0),
 ):
-    """Paginated list of all parsed programs."""
     if not _db_exists():
         return {"items": [], "total": 0}
     with _con() as con:
@@ -127,7 +254,6 @@ def list_programs(
 
 @app.get("/programs/{program_name}", tags=["Programs"])
 def get_program(program_name: str):
-    """Program metadata + node UUID."""
     if not _db_exists():
         raise HTTPException(503, "Pipeline not yet run")
     with _con() as con:
@@ -144,7 +270,6 @@ def get_program(program_name: str):
 
 @app.get("/programs/{program_name}/detail", tags=["Programs"])
 def get_program_detail(program_name: str):
-    """Full program detail: paragraphs, data items, call graph, business rules, risks."""
     if not _db_exists():
         raise HTTPException(503, "Pipeline not yet run")
     with _con() as con:
@@ -205,6 +330,173 @@ def get_program_detail(program_name: str):
         "risks": risks,
         "copybooks": copybooks,
     }
+
+
+# ── AST / Visualization endpoints ─────────────────────────────────────────────
+
+@app.get("/programs/{program_name}/ast", tags=["Visualization"])
+def get_program_ast(program_name: str):
+    """Return AST as a nested tree suitable for d3/tree rendering."""
+    if not _db_exists():
+        raise HTTPException(503, "Pipeline not yet run")
+    with _con() as con:
+        prog = con.execute(
+            "SELECT * FROM nodes WHERE kind='Program' AND UPPER(name)=UPPER(?)",
+            (program_name,),
+        ).fetchone()
+        if not prog:
+            raise HTTPException(404, f"Program '{program_name}' not found")
+        prog_uuid = prog["uuid"]
+
+        # Fetch all nodes in the program subtree
+        all_nodes = _rows_to_list(con.execute(
+            """
+            WITH RECURSIVE subtree(uuid) AS (
+                SELECT ? UNION ALL
+                SELECT n.uuid FROM nodes n JOIN subtree s ON n.parent_uuid = s.uuid
+            )
+            SELECT n.uuid, n.kind, n.name, n.start_line, n.end_line, n.parent_uuid
+            FROM nodes n JOIN subtree s ON n.uuid = s.uuid
+            ORDER BY n.start_line
+            """,
+            (prog_uuid,),
+        ).fetchall())
+
+    # Build tree
+    by_uuid = {n["uuid"]: {**n, "children": []} for n in all_nodes}
+    root = None
+    for node in all_nodes:
+        if node["parent_uuid"] and node["parent_uuid"] in by_uuid:
+            by_uuid[node["parent_uuid"]]["children"].append(by_uuid[node["uuid"]])
+        elif node["uuid"] == prog_uuid:
+            root = by_uuid[node["uuid"]]
+    return {"root": root} if root else {"root": None}
+
+
+@app.get("/programs/{program_name}/cfg", tags=["Visualization"])
+def get_program_cfg(program_name: str):
+    """Return control-flow graph as nodes + edges (Mermaid-compatible)."""
+    if not _db_exists():
+        raise HTTPException(503, "Pipeline not yet run")
+    with _con() as con:
+        prog = con.execute(
+            "SELECT uuid FROM nodes WHERE kind='Program' AND UPPER(name)=UPPER(?)",
+            (program_name,),
+        ).fetchone()
+        if not prog:
+            raise HTTPException(404, f"Program '{program_name}' not found")
+        prog_uuid = prog["uuid"]
+
+        paras = _rows_to_list(con.execute(
+            "SELECT uuid, name, start_line FROM nodes WHERE parent_uuid=? AND kind='Paragraph' ORDER BY start_line",
+            (prog_uuid,),
+        ).fetchall())
+        para_uuids = [p["uuid"] for p in paras]
+        para_map = {p["uuid"]: p["name"] or p["uuid"][:8] for p in paras}
+
+        edges = []
+        if para_uuids:
+            ph = ",".join("?" * len(para_uuids))
+            edges = _rows_to_list(con.execute(
+                f"SELECT from_uuid, to_uuid, edge_type FROM control_flow WHERE from_uuid IN ({ph})",
+                para_uuids,
+            ).fetchall())
+
+    # Build Mermaid flowchart
+    lines = ["flowchart TD"]
+    for p in paras:
+        safe_name = (p["name"] or p["uuid"][:8]).replace("-", "_")
+        lines.append(f'  {safe_name}["{p["name"] or p["uuid"][:8]}\\nL{p["start_line"]}"]')
+    for e in edges:
+        frm = para_map.get(e["from_uuid"], e["from_uuid"][:8]).replace("-", "_")
+        to = para_map.get(e["to_uuid"], e["to_uuid"][:8]).replace("-", "_")
+        label = e["edge_type"] or ""
+        lines.append(f'  {frm} -->|"{label}"| {to}')
+
+    return {
+        "nodes": paras,
+        "edges": edges,
+        "mermaid": "\n".join(lines),
+        "para_count": len(paras),
+        "edge_count": len(edges),
+    }
+
+
+@app.get("/programs/{program_name}/symbol-table", tags=["Visualization"])
+def get_symbol_table(program_name: str, search: str = Query("", description="Filter by name")):
+    """Return full symbol table / data dictionary for a program."""
+    if not _db_exists():
+        raise HTTPException(503, "Pipeline not yet run")
+    with _con() as con:
+        prog = con.execute(
+            "SELECT uuid FROM nodes WHERE kind='Program' AND UPPER(name)=UPPER(?)",
+            (program_name,),
+        ).fetchone()
+        if not prog:
+            raise HTTPException(404, f"Program '{program_name}' not found")
+
+        like = f"%{search.upper()}%" if search else "%"
+        items = _rows_to_list(con.execute(
+            """
+            SELECT d.uuid, d.name, d.level, d.pic, d.usage, d.sign,
+                   d.occurs_min, d.occurs_max, d.redefines, d.value_raw,
+                   d.canonical_kind, d.precision, d.scale, d.signed, d.length,
+                   d.copybook_origin, d.start_line,
+                   (SELECT COUNT(*) FROM def_use du WHERE du.data_item_uuid=d.uuid AND du.op='READ')  AS reads,
+                   (SELECT COUNT(*) FROM def_use du WHERE du.data_item_uuid=d.uuid AND du.op='WRITE') AS writes
+            FROM data_items d
+            WHERE d.program_uuid=? AND UPPER(d.name) LIKE ?
+            ORDER BY d.start_line, d.level
+            """,
+            (prog["uuid"], like),
+        ).fetchall())
+
+        # Fetch 88-level conditions grouped by parent
+        conditions = _rows_to_list(con.execute(
+            """
+            SELECT c.uuid, c.parent_uuid, c.name, c.value_raw
+            FROM conditions_88 c
+            JOIN data_items d ON d.uuid = c.parent_uuid
+            WHERE d.program_uuid=?
+            """,
+            (prog["uuid"],),
+        ).fetchall())
+
+    cond_by_parent: dict[str, list] = {}
+    for c in conditions:
+        cond_by_parent.setdefault(c["parent_uuid"], []).append(c)
+
+    for item in items:
+        item["conditions_88"] = cond_by_parent.get(item["uuid"], [])
+
+    return {"program": program_name, "items": items, "total": len(items)}
+
+
+@app.get("/programs/{program_name}/complexity", tags=["Visualization"])
+def get_complexity(program_name: str):
+    """Return complexity metrics for each paragraph."""
+    if not _db_exists():
+        raise HTTPException(503, "Pipeline not yet run")
+    with _con() as con:
+        prog = con.execute(
+            "SELECT uuid FROM nodes WHERE kind='Program' AND UPPER(name)=UPPER(?)",
+            (program_name,),
+        ).fetchone()
+        if not prog:
+            raise HTTPException(404, f"Program '{program_name}' not found")
+        rows = _rows_to_list(con.execute(
+            """
+            SELECT cm.cyclomatic, cm.statement_count AS loc,
+                   cm.nesting_depth, cm.fan_in, cm.fan_out,
+                   n.name, n.start_line
+            FROM complexity_metrics cm
+            JOIN nodes n ON n.uuid = cm.para_uuid
+            WHERE cm.program_uuid=?
+            ORDER BY cm.cyclomatic DESC
+            """,
+            (prog["uuid"],),
+        ).fetchall())
+    return {"program": program_name, "paragraphs": rows}
 
 
 # ── Paragraphs ────────────────────────────────────────────────────────────────
@@ -365,6 +657,106 @@ def get_copybook_consumers(copybook_name: str):
     return _rows_to_list(rows)
 
 
+# ── Layer summary (pipeline explorer) ────────────────────────────────────────
+
+@app.get("/layers/summary", tags=["Visualization"])
+def get_layers_summary():
+    """Return per-layer artifact counts for the Pipeline Layer Explorer UI."""
+    if not _db_exists():
+        return {}
+    with _con() as con:
+        def _int(q, *p):
+            return con.execute(q, p).fetchone()[0] or 0
+
+        # Layer 1
+        programs    = _int("SELECT COUNT(DISTINCT name) FROM nodes WHERE kind='Program'")
+        paragraphs  = _int("SELECT COUNT(*) FROM nodes WHERE kind='Paragraph'")
+        statements  = _int("SELECT COUNT(*) FROM nodes WHERE kind LIKE 'Stmt_%'")
+
+        # Layer 2
+        data_items   = _int("SELECT COUNT(*) FROM data_items")
+        cond_88      = _int("SELECT COUNT(*) FROM conditions_88")
+        copybook_refs = _int("SELECT COUNT(*) FROM copybook_use")
+
+        # Layer 3
+        cfg_total    = _int("SELECT COUNT(*) FROM control_flow")
+        cfg_branch   = _int("SELECT COUNT(*) FROM control_flow WHERE edge_type LIKE 'BRANCH_%'")
+        cfg_perform  = _int("SELECT COUNT(*) FROM control_flow WHERE edge_type='PERFORM'")
+        cfg_fallthru = _int("SELECT COUNT(*) FROM control_flow WHERE edge_type='FALLTHROUGH'")
+        du_total     = _int("SELECT COUNT(*) FROM def_use")
+        du_writes    = _int("SELECT COUNT(*) FROM def_use WHERE op='WRITE'")
+
+        # Layer 4
+        call_total    = _int("SELECT COUNT(*) FROM call_graph")
+        call_resolved = _int("SELECT COUNT(*) FROM call_graph WHERE is_resolved=1")
+        file_io_total = _int("SELECT COUNT(*) FROM file_io")
+        tx_flow_total = _int("SELECT COUNT(*) FROM transaction_flow")
+        jcl_bindings  = _int("SELECT COUNT(*) FROM jcl_program_binding") if \
+            con.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='jcl_program_binding'").fetchone() else 0
+
+        # Layer 5
+        br_total     = _int("SELECT COUNT(*) FROM business_rules")
+        br_if        = _int("SELECT COUNT(*) FROM business_rules WHERE kind='IF'")
+        br_eval      = _int("SELECT COUNT(*) FROM business_rules WHERE kind='EVALUATE_WHEN'")
+        arith_specs  = _int("SELECT COUNT(*) FROM arithmetic_specs")
+
+        # Layer 6
+        bms_maps  = _int("SELECT COUNT(DISTINCT map_name) FROM screen_map")
+        csd_count = _int("SELECT COUNT(*) FROM csd_catalog")
+
+        # Layer 7
+        cov_rows  = con.execute("SELECT status FROM parse_coverage").fetchall()
+        cov_total = len(cov_rows)
+        cov_ok    = sum(1 for r in cov_rows if r["status"] == "OK")
+        risk_high = _int("SELECT COUNT(*) FROM risk_register WHERE severity='HIGH'")
+        risk_med  = _int("SELECT COUNT(*) FROM risk_register WHERE severity='MEDIUM'")
+        risk_low  = _int("SELECT COUNT(*) FROM risk_register WHERE severity='LOW'")
+
+    return {
+        "layer1": {"programs": programs, "paragraphs": paragraphs, "statements": statements},
+        "layer2": {"data_items": data_items, "conditions_88": cond_88, "copybook_refs": copybook_refs},
+        "layer3": {
+            "cfg_edges": cfg_total, "branch_edges": cfg_branch,
+            "perform_edges": cfg_perform, "fallthru_edges": cfg_fallthru,
+            "def_use_entries": du_total, "def_use_writes": du_writes,
+        },
+        "layer4": {
+            "call_edges": call_total, "resolved": call_resolved,
+            "resolved_pct": round(100 * call_resolved / max(call_total, 1)),
+            "file_io": file_io_total, "tx_flow": tx_flow_total,
+            "jcl_bindings": jcl_bindings,
+        },
+        "layer5": {"business_rules": br_total, "if_rules": br_if,
+                   "evaluate_rules": br_eval, "arith_specs": arith_specs},
+        "layer6": {"bms_maps": bms_maps, "csd_entries": csd_count},
+        "layer7": {
+            "coverage_pct": round(100 * cov_ok / max(cov_total, 1), 1),
+            "ok_files": cov_ok, "total_files": cov_total,
+            "risk_high": risk_high, "risk_medium": risk_med, "risk_low": risk_low,
+        },
+    }
+
+
+# ── JCL program bindings ──────────────────────────────────────────────────────
+
+@app.get("/jcl/bindings", tags=["JCL"])
+def get_jcl_bindings(limit: int = Query(100)):
+    """Return JCL DD → COBOL logical file bindings (G3)."""
+    if not _db_exists():
+        return []
+    with _con() as con:
+        tbl = con.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='jcl_program_binding'"
+        ).fetchone()
+        if not tbl:
+            return []
+        rows = con.execute(
+            "SELECT * FROM jcl_program_binding ORDER BY job_name, step_name LIMIT ?",
+            (limit,),
+        ).fetchall()
+    return _rows_to_list(rows)
+
+
 # ── Reports ───────────────────────────────────────────────────────────────────
 
 @app.get("/reports/coverage", tags=["Reports"])
@@ -395,7 +787,6 @@ def get_risk_register():
 
 @app.get("/diagrams/{name}", tags=["Diagrams"])
 def get_diagram(name: str):
-    """Return raw Mermaid diagram text by name (call_graph, transaction_flow, etc.)."""
     safe = name.replace("/", "").replace("..", "")
     paths = [
         PROJECT_ROOT / "output" / "diagrams" / f"{safe}.mmd",
@@ -404,7 +795,6 @@ def get_diagram(name: str):
     for p in paths:
         if p.exists():
             return {"name": safe, "content": p.read_text()}
-    # Try generating on-the-fly
     try:
         from diagrams.mermaid_gen import _call_graph_mmd, _tx_flow_mmd, _jcl_chain_mmd, _file_io_mmd
         with _con() as con:
@@ -419,18 +809,25 @@ def get_diagram(name: str):
                 return {"name": safe, "content": content}
     except Exception:
         pass
-    raise HTTPException(404, f"Diagram '{name}' not found. Run ./run.sh --diagrams first.")
+    raise HTTPException(404, f"Diagram '{name}' not found.")
 
 
 # ── LLM spec generation ───────────────────────────────────────────────────────
 
 @app.post("/generate-spec", tags=["LLM"])
 def generate_spec_endpoint(body: dict):
-    """Generate a grounded specification. Body: {uuid, scope}"""
     uuid  = body.get("uuid", "")
     scope = body.get("scope", "paragraph")
+    model = body.get("model")  # optional model override from UI
     if not uuid:
         raise HTTPException(400, "uuid required")
+    # Forward model override to env so llm layer picks it up
+    if model:
+        provider = os.environ.get("LLM_PROVIDER", "openai").lower()
+        if provider == "openai":
+            os.environ["OPENAI_MODEL"] = model
+        elif provider == "gemini":
+            os.environ["GEMINI_MODEL"] = model
     try:
         from llm.langgraph_agent import generate_spec_for
         spec = generate_spec_for(uuid, scope=scope)
@@ -439,14 +836,63 @@ def generate_spec_endpoint(body: dict):
         raise HTTPException(500, str(exc))
 
 
+# ── Modernization report (batch spec generation) ──────────────────────────────
+
+@app.post("/generate-modernization-report", tags=["LLM"])
+async def generate_modernization_report(body: dict = {}):
+    """Generate one holistic application modernization report (SSE stream)."""
+    if not _db_exists():
+        raise HTTPException(400, "No pipeline database found — run the pipeline first.")
+
+    use_llm = body.get("use_llm", False)
+
+    async def _stream():
+        import asyncio
+        from llm.modernization_report import generate_holistic_report
+        try:
+            yield f"data: {json.dumps({'event': 'start', 'message': 'Building holistic modernization report…'})}\n\n"
+            await asyncio.sleep(0)
+            with _con() as con:
+                result = generate_holistic_report(con, use_llm=use_llm)
+            yield f"data: {json.dumps(result)}\n\n"
+        except Exception as exc:
+            yield f"data: {json.dumps({'event': 'error', 'message': str(exc)})}\n\n"
+
+    return StreamingResponse(_stream(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@app.get("/specs", tags=["LLM"])
+def list_specs():
+    """List generated program spec files."""
+    specs_dir = PROJECT_ROOT / "output" / "specs"
+    if not specs_dir.exists():
+        return {"specs": [], "combined_report": None}
+    files = sorted(specs_dir.glob("*.md"))
+    combined = specs_dir / "MODERNIZATION_REPORT.md"
+    return {
+        "specs": [{"name": f.stem, "size_kb": round(f.stat().st_size / 1024, 1)} for f in files
+                  if f.name != "MODERNIZATION_REPORT.md"],
+        "combined_report": str(combined) if combined.exists() else None,
+        "combined_size_kb": round(combined.stat().st_size / 1024, 1) if combined.exists() else 0,
+    }
+
+
+@app.get("/specs/{program_name}", tags=["LLM"])
+def get_spec(program_name: str):
+    """Retrieve a generated program spec as Markdown text."""
+    spec_file = PROJECT_ROOT / "output" / "specs" / f"{program_name}.md"
+    if not spec_file.exists():
+        raise HTTPException(404, f"Spec not found for {program_name}. Run the modernization report first.")
+    return {"program": program_name, "markdown": spec_file.read_text(encoding="utf-8")}
+
+
 # ── Java emit ─────────────────────────────────────────────────────────────────
 
 @app.get("/emit-java/{program_name}", tags=["Java Emit"])
 def emit_java_endpoint(program_name: str):
-    """Emit Java source for a program from its canonical IR."""
-    ir_path = PROJECT_ROOT / "output" / "ir" / f"{program_name.upper()}.ir.json"
+    ir_path    = PROJECT_ROOT / "output" / "ir" / f"{program_name.upper()}.ir.json"
     layer1_path = PROJECT_ROOT / "output" / "layer1" / f"{program_name.upper()}.json"
-
     try:
         if ir_path.exists():
             from ir.java_emitter import emit_java_from_file
@@ -455,8 +901,10 @@ def emit_java_endpoint(program_name: str):
             import json as _json
             from ir.canonical_ir import lower_program
             from ir.java_emitter import emit_java
-            nodes = _json.loads(layer1_path.read_text())
-            ir = lower_program(nodes, program_name.upper())
+            layer1_data = _json.loads(layer1_path.read_text())
+            # layer1 JSON wraps nodes under "nodes" key
+            node_list = layer1_data.get("nodes", layer1_data) if isinstance(layer1_data, dict) else layer1_data
+            ir = lower_program(node_list, program_name.upper())
             java_src = emit_java(ir)
         else:
             raise HTTPException(404, f"No IR found for {program_name}. Run the pipeline first.")
@@ -473,10 +921,13 @@ def emit_java_endpoint(program_name: str):
 @app.post("/pipeline/run", tags=["Pipeline"])
 async def run_pipeline_stream(body: dict = {}):
     """Stream pipeline execution log via Server-Sent Events."""
+    global _pipeline_proc
     corpus  = body.get("corpus", str(PROJECT_ROOT / "external/carddemo/app/cbl"))
     db_path = body.get("db",     str(DEFAULT_DB))
 
     async def event_stream() -> AsyncGenerator[str, None]:
+        global _pipeline_proc
+
         def fmt(msg: str, kind: str = "log") -> str:
             return f"data: {json.dumps({'kind': kind, 'msg': msg, 'ts': time.time()})}\n\n"
 
@@ -496,23 +947,27 @@ async def run_pipeline_stream(body: dict = {}):
         ]
 
         try:
-            proc = await asyncio.create_subprocess_exec(
+            _pipeline_proc = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
                 cwd=str(PROJECT_ROOT),
             )
-            async for raw in proc.stdout:
+            async for raw in _pipeline_proc.stdout:
                 line = raw.decode(errors="replace").rstrip()
                 if line:
                     yield fmt(line, "log")
-            await proc.wait()
-            if proc.returncode == 0:
+            await _pipeline_proc.wait()
+            if _pipeline_proc.returncode == 0:
                 yield fmt("Pipeline completed successfully.", "success")
+            elif _pipeline_proc.returncode == -15:
+                yield fmt("Pipeline was cancelled.", "error")
             else:
-                yield fmt(f"Pipeline exited with code {proc.returncode}", "error")
+                yield fmt(f"Pipeline exited with code {_pipeline_proc.returncode}", "error")
         except Exception as exc:
             yield fmt(f"ERROR: {exc}", "error")
+        finally:
+            _pipeline_proc = None
 
         yield fmt("DONE", "done")
 
@@ -520,15 +975,34 @@ async def run_pipeline_stream(body: dict = {}):
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
+@app.post("/pipeline/cancel", tags=["Pipeline"])
+async def cancel_pipeline():
+    """Terminate the running pipeline process."""
+    global _pipeline_proc
+    if _pipeline_proc and _pipeline_proc.returncode is None:
+        _pipeline_proc.terminate()
+        return {"ok": True, "msg": "Pipeline cancelled"}
+    return {"ok": False, "msg": "No pipeline running"}
+
+
 # ── Health ────────────────────────────────────────────────────────────────────
 
 @app.get("/health", tags=["Utility"])
 def health():
     db_ready = _db_exists()
-    return {"status": "ok", "db": str(DEFAULT_DB), "db_ready": db_ready}
+    pipeline_running = _pipeline_proc is not None and _pipeline_proc.returncode is None
+    return {
+        "status": "ok",
+        "db": str(DEFAULT_DB),
+        "db_ready": db_ready,
+        "pipeline_running": pipeline_running,
+    }
 
 
 # ── Serve UI (must be last) ───────────────────────────────────────────────────
+# Prefer the Vite-built dist/ output; fall back to raw ui/ for development.
+_UI_DIST = UI_DIR / "dist"
+_SERVE_DIR = _UI_DIST if _UI_DIST.exists() else UI_DIR
 
-if UI_DIR.exists():
-    app.mount("/", StaticFiles(directory=str(UI_DIR), html=True), name="ui")
+if _SERVE_DIR.exists():
+    app.mount("/", StaticFiles(directory=str(_SERVE_DIR), html=True), name="ui")

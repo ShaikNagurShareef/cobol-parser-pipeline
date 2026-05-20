@@ -10,22 +10,24 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <style>
-    /* ── UST Brand Palette ─────────────────────────────────────── */
+    /* ── UST Global Brand Palette (extracted from ust.com CSS) ── */
     :root {
-      --ust-navy:   #003087;
-      --ust-blue:   #0052A5;
-      --ust-sky:    #00A3E0;
-      --ust-orange: #E84B23;
-      --ust-orange2:#FF7A50;
+      --ust-teal:  #006e74;   /* Primary CTA — ust.com buttons */
+      --ust-teal2: #0097ab;   /* Hover / bright accent */
+      --ust-sky:   #009ddc;   /* Links, secondary accent */
+      --ust-dark:  #1c242c;   /* Page background tone from ust.com */
+      --ust-navy:  #003c51;   /* Deepest surface */
+      --ust-mid:   #252c32;   /* Card surface */
+      --ust-edge:  #2b333f;   /* Borders */
 
-      --accent:  var(--ust-orange);
-      --accent2: var(--ust-orange2);
-      --bg:      #010D22;
-      --surface: #001640;
-      --surface2:#002060;
-      --border:  #0A3A80;
-      --text:    #EDF2FF;
-      --muted:   #7BA8D4;
+      --accent:  var(--ust-teal);
+      --accent2: var(--ust-teal2);
+      --bg:      #0d1114;
+      --surface: var(--ust-dark);
+      --surface2: var(--ust-mid);
+      --border:  var(--ust-edge);
+      --text:    #f0f4f4;
+      --muted:   #7e8c9a;
     }
     * { box-sizing: border-box; }
     body { background: var(--bg); color: var(--text); font-family: 'Inter', system-ui, sans-serif; margin: 0; min-height: 100vh; }
@@ -34,20 +36,20 @@
     ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 
     /* Layout */
-    #sidebar { width: 240px; min-width: 240px; background: var(--surface); border-right: 1px solid var(--border); height: 100vh; position: fixed; top: 0; left: 0; overflow-y: auto; z-index: 50; transition: transform .25s; }
+    #sidebar { width: 240px; min-width: 240px; background: var(--ust-navy); border-right: 1px solid var(--border); height: 100vh; position: fixed; top: 0; left: 0; overflow-y: auto; z-index: 50; transition: transform .25s; }
     #main { margin-left: 240px; min-height: 100vh; display: flex; flex-direction: column; }
-    #topbar { height: 56px; background: var(--surface2); border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 24px; position: sticky; top: 0; z-index: 40; }
+    #topbar { height: 56px; background: var(--surface); border-bottom: 2px solid var(--ust-teal); display: flex; align-items: center; padding: 0 24px; position: sticky; top: 0; z-index: 40; }
     #content { flex: 1; padding: 28px 32px; max-width: 1400px; width: 100%; }
 
     /* Sidebar brand bar */
-    .sidebar-brand { background: linear-gradient(180deg, #003087 0%, #001F60 100%); border-bottom: 2px solid var(--ust-orange); padding: 16px; }
+    .sidebar-brand { background: #003c51; border-bottom: 3px solid var(--ust-teal); padding: 16px; }
     .ust-logo { display: flex; align-items: center; gap: 10px; }
-    .ust-badge { width: 36px; height: 36px; background: var(--ust-orange); border-radius: 6px; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 14px; color: white; letter-spacing: -1px; flex-shrink: 0; }
+    .ust-badge { width: 36px; height: 36px; background: var(--ust-teal); border-radius: 6px; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 14px; color: white; letter-spacing: -1px; flex-shrink: 0; }
 
     /* Nav */
     .nav-item { display: flex; align-items: center; gap: 10px; padding: 9px 14px; border-radius: 7px; cursor: pointer; color: var(--muted); font-size: 13.5px; font-weight: 500; transition: all .15s; margin: 2px 8px; }
-    .nav-item:hover { background: rgba(232,75,35,.12); color: var(--text); }
-    .nav-item.active { background: rgba(232,75,35,.18); color: var(--ust-orange); border-left: 2px solid var(--ust-orange); padding-left: 12px; }
+    .nav-item:hover { background: #004658; color: var(--text); }
+    .nav-item.active { background: #004b5c; color: #5ecdd1; border-left: 3px solid var(--ust-teal); padding-left: 11px; }
     .nav-icon { width: 16px; height: 16px; flex-shrink: 0; }
     .nav-section { font-size: 10px; color: var(--muted); padding: 12px 16px 4px; text-transform: uppercase; letter-spacing: .1em; opacity: .7; }
 
@@ -55,62 +57,81 @@
     .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
     .card-sm { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 14px; }
     .stat-card { border-radius: 12px; padding: 20px 24px; position: relative; overflow: hidden; border: 1px solid var(--border); }
-    .stat-card::before { content: ''; position: absolute; top: -24px; right: -24px; width: 72px; height: 72px; border-radius: 50%; opacity: .12; }
-    .stat-card.orange  { background: linear-gradient(135deg,#1A0C06 0%,#2A1200 100%); }
-    .stat-card.orange::before  { background: #E84B23; }
-    .stat-card.sky     { background: linear-gradient(135deg,#001A30 0%,#002040 100%); }
-    .stat-card.sky::before     { background: #00A3E0; }
-    .stat-card.navy    { background: linear-gradient(135deg,#001030 0%,#001848 100%); }
-    .stat-card.navy::before    { background: #0052A5; }
-    .stat-card.teal    { background: linear-gradient(135deg,#001820 0%,#002030 100%); }
-    .stat-card.teal::before    { background: #00BCD4; }
-    .stat-card.green   { background: linear-gradient(135deg,#001408 0%,#001A0C 100%); }
-    .stat-card.green::before   { background: #22c55e; }
-    .stat-card.amber   { background: linear-gradient(135deg,#1A1000 0%,#221600 100%); }
-    .stat-card.amber::before   { background: #f59e0b; }
-    .stat-card.red     { background: linear-gradient(135deg,#200008 0%,#2A000C 100%); }
-    .stat-card.red::before     { background: #ef4444; }
-    .stat-card.cyan    { background: linear-gradient(135deg,#001820 0%,#001E2A 100%); }
-    .stat-card.cyan::before    { background: #06b6d4; }
+    .stat-card::before { content: ''; position: absolute; top: -24px; right: -24px; width: 72px; height: 72px; border-radius: 50%; opacity: .15; }
+    /* UST teal family for stat cards */
+    .stat-card.p1 { background: linear-gradient(135deg,#002830 0%,#003c40 100%); }
+    .stat-card.p1::before { background: #006e74; }
+    .stat-card.p2 { background: linear-gradient(135deg,#003040 0%,#004558 100%); }
+    .stat-card.p2::before { background: #0097ab; }
+    .stat-card.p3 { background: linear-gradient(135deg,#002838 0%,#003a50 100%); }
+    .stat-card.p3::before { background: #009ddc; }
+    .stat-card.p4 { background: linear-gradient(135deg,#002030 0%,#003040 100%); }
+    .stat-card.p4::before { background: #00afd9; }
+    .stat-card.p5 { background: linear-gradient(135deg,#001a10 0%,#002818 100%); }
+    .stat-card.p5::before { background: #01b27c; }
+    .stat-card.p6 { background: linear-gradient(135deg,#1a1000 0%,#281a00 100%); }
+    .stat-card.p6::before { background: #f59e0b; }
+    .stat-card.p7 { background: linear-gradient(135deg,#200008 0%,#300010 100%); }
+    .stat-card.p7::before { background: #ef4444; }
+    .stat-card.p8 { background: linear-gradient(135deg,#002030 0%,#002a3a 100%); }
+    .stat-card.p8::before { background: #00bed9; }
+    /* keep backward-compat aliases */
+    .stat-card.orange { background: linear-gradient(135deg,#002830 0%,#003c40 100%); }
+    .stat-card.orange::before { background: #006e74; }
+    .stat-card.sky    { background: linear-gradient(135deg,#003040 0%,#004558 100%); }
+    .stat-card.sky::before    { background: #0097ab; }
+    .stat-card.navy   { background: linear-gradient(135deg,#002838 0%,#003a50 100%); }
+    .stat-card.navy::before   { background: #009ddc; }
+    .stat-card.teal   { background: linear-gradient(135deg,#002030 0%,#003040 100%); }
+    .stat-card.teal::before   { background: #00afd9; }
+    .stat-card.green  { background: linear-gradient(135deg,#001a10 0%,#002818 100%); }
+    .stat-card.green::before  { background: #01b27c; }
+    .stat-card.amber  { background: linear-gradient(135deg,#1a1000 0%,#281a00 100%); }
+    .stat-card.amber::before  { background: #f59e0b; }
+    .stat-card.red    { background: linear-gradient(135deg,#200008 0%,#300010 100%); }
+    .stat-card.red::before    { background: #ef4444; }
+    .stat-card.cyan   { background: linear-gradient(135deg,#002030 0%,#002a3a 100%); }
+    .stat-card.cyan::before   { background: #00bed9; }
 
     /* Tables */
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
     th { color: var(--muted); font-weight: 600; text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
-    td { padding: 10px 12px; border-bottom: 1px solid rgba(10,58,128,.4); vertical-align: middle; }
-    tr:hover td { background: rgba(232,75,35,.04); }
+    td { padding: 10px 12px; border-bottom: 1px solid rgba(43,51,63,.6); vertical-align: middle; }
+    tr:hover td { background: rgba(0,110,116,.06); }
     tr:last-child td { border-bottom: none; }
 
     /* Badges */
     .badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
-    .badge-orange { background: rgba(232,75,35,.18);  color: #FF7A50; }
-    .badge-sky    { background: rgba(0,163,224,.18);  color: #4DD6F5; }
-    .badge-green  { background: rgba(34,197,94,.15);  color: #4ade80; }
-    .badge-red    { background: rgba(239,68,68,.15);  color: #f87171; }
-    .badge-amber  { background: rgba(245,158,11,.15); color: #fbbf24; }
-    .badge-blue   { background: rgba(0,82,165,.25);   color: #60a5fa; }
-    .badge-purple { background: rgba(139,92,246,.15); color: #a78bfa; }
-    .badge-gray   { background: rgba(123,168,212,.1); color: var(--muted); }
+    .badge-teal   { background: #15373e; color: #5ecdd1; }
+    .badge-orange { background: #15373e; color: #5ecdd1; }   /* alias */
+    .badge-sky    { background: #0d2e35; color: #55d4eb; }
+    .badge-green  { background: #0e2e22; color: #34d399; }
+    .badge-red    { background: #2c1414; color: #f87171; }
+    .badge-amber  { background: #2b2008; color: #fbbf24; }
+    .badge-blue   { background: #0d2535; color: #60c8fa; }
+    .badge-purple { background: #231228; color: #d876d6; }
+    .badge-gray   { background: #1e2530; color: var(--muted); }
 
     /* Buttons */
     .btn { display: inline-flex; align-items: center; gap: 8px; padding: 8px 18px; border-radius: 8px; font-size: 14px; font-weight: 500; cursor: pointer; border: none; transition: all .15s; }
-    .btn-primary { background: var(--ust-orange); color: #fff; }
-    .btn-primary:hover { background: var(--ust-orange2); }
+    .btn-primary { background: var(--ust-teal); color: #fff; }
+    .btn-primary:hover { background: var(--ust-teal2); }
     .btn-secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
-    .btn-secondary:hover { background: rgba(0,82,165,.3); border-color: var(--ust-sky); }
-    .btn-danger { background: rgba(239,68,68,.15); color: #f87171; border: 1px solid rgba(239,68,68,.3); }
-    .btn-success { background: rgba(34,197,94,.15); color: #4ade80; border: 1px solid rgba(34,197,94,.3); }
+    .btn-secondary:hover { background: #1c3d43; border-color: var(--ust-teal); }
+    .btn-danger { background: #2c1414; color: #f87171; border: 1px solid #5c2222; }
+    .btn-success { background: #0e2e22; color: #34d399; border: 1px solid #1a5a3e; }
     .btn:disabled { opacity: .45; cursor: not-allowed; }
 
     /* Inputs */
     input, select, textarea { background: var(--surface2); border: 1px solid var(--border); color: var(--text); border-radius: 8px; padding: 8px 12px; font-size: 14px; outline: none; transition: border-color .15s; }
-    input:focus, select:focus, textarea:focus { border-color: var(--ust-orange); box-shadow: 0 0 0 2px rgba(232,75,35,.15); }
+    input:focus, select:focus, textarea:focus { border-color: var(--ust-teal); box-shadow: 0 0 0 2px rgba(0,110,116,.2); }
     input::placeholder { color: var(--muted); }
     select option { background: var(--surface2); }
 
     /* Tabs */
     .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 20px; }
     .tab { padding: 10px 16px; font-size: 13px; font-weight: 500; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; transition: all .15s; }
-    .tab.active { color: var(--ust-orange); border-bottom-color: var(--ust-orange); }
+    .tab.active { color: #5ecdd1; border-bottom-color: var(--ust-teal); }
     .tab:hover:not(.active) { color: var(--text); }
 
     /* Code */
@@ -118,13 +139,13 @@
     code.hljs { border-radius: 8px; font-size: 12px; }
 
     /* Log stream */
-    #pipeline-log { font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 12px; background: #010810; border: 1px solid var(--border); border-radius: 8px; padding: 16px; height: 360px; overflow-y: auto; }
-    .log-line   { padding: 2px 0; line-height: 1.6; }
-    .log-start  { color: var(--ust-orange); }
-    .log-success{ color: #4ade80; }
-    .log-error  { color: #f87171; }
-    .log-info   { color: var(--ust-sky); }
-    .log-log    { color: var(--muted); }
+    #pipeline-log { font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 12px; background: #080e10; border: 1px solid var(--border); border-radius: 8px; padding: 16px; height: 360px; overflow-y: auto; }
+    .log-line    { padding: 2px 0; line-height: 1.6; }
+    .log-start   { color: #5ecdd1; }
+    .log-success { color: #34d399; }
+    .log-error   { color: #f87171; }
+    .log-info    { color: var(--ust-sky); }
+    .log-log     { color: var(--muted); }
 
     /* Mermaid */
     .mermaid-wrap { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 20px; overflow: auto; }
@@ -135,16 +156,16 @@
 
     /* Progress bar */
     .progress-bar { height: 6px; border-radius: 999px; background: var(--border); overflow: hidden; }
-    .progress-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--ust-orange), var(--ust-sky)); transition: width .4s; }
+    .progress-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--ust-teal), var(--ust-teal2)); transition: width .4s; }
 
     /* Risk severity */
     .sev-HIGH   { color: #f87171; }
     .sev-MEDIUM { color: #fbbf24; }
-    .sev-LOW    { color: #4ade80; }
+    .sev-LOW    { color: #34d399; }
 
     /* Diagram buttons */
     .diag-btn { padding: 8px 16px; border-radius: 8px; font-size: 13px; cursor: pointer; border: 1px solid var(--border); background: var(--surface2); color: var(--muted); transition: all .15s; }
-    .diag-btn.active, .diag-btn:hover { background: rgba(232,75,35,.18); color: var(--ust-orange); border-color: var(--ust-orange); }
+    .diag-btn.active, .diag-btn:hover { background: #1c3d43; color: #5ecdd1; border-color: var(--ust-teal); }
 
     /* LangGraph nodes */
     .lg-node { padding: 10px 20px; border-radius: 999px; font-size: 13px; font-weight: 600; display: inline-flex; align-items: center; gap: 8px; }
@@ -155,11 +176,15 @@
     .spin { animation: spin 1s linear infinite; }
     @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 
-    /* Toast */
-    #toast { position: fixed; bottom: 24px; right: 24px; background: var(--ust-orange); color: white; padding: 10px 20px; border-radius: 8px; font-size: 13px; font-weight: 500; z-index: 9999; display: none; box-shadow: 0 4px 12px rgba(232,75,35,.4); }
+    /* Layer Explorer */
+    .lx-flow-node { background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 16px; min-width: 110px; text-align: center; transition: all .15s; flex-shrink: 0; }
+    .lx-flow-node:hover { border-color: var(--ust-teal); background: #1c3d43; }
+    .lx-arrow { color: var(--muted); font-size: 18px; flex-shrink: 0; }
+    .lx-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 22px; margin-bottom: 16px; transition: border-color .2s; }
+    .lx-card:hover { border-color: rgba(0,110,116,.4); }
 
-    /* Topbar accent line */
-    #topbar { border-bottom: 2px solid var(--border); border-top: 0; }
+    /* Toast */
+    #toast { position: fixed; bottom: 24px; right: 24px; background: var(--ust-teal); color: white; padding: 10px 20px; border-radius: 8px; font-size: 13px; font-weight: 500; z-index: 9999; display: none; box-shadow: 0 4px 12px rgba(0,110,116,.4); }
 
     @media (max-width: 768px) {
       #sidebar { transform: translateX(-100%); }
@@ -219,6 +244,16 @@
       LangGraph
     </div>
 
+    <div class="nav-section">Visualizations</div>
+    <div class="nav-item" onclick="navigate('layers')">
+      <svg class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+      Layer Explorer
+    </div>
+    <div class="nav-item" onclick="navigate('visualizations')">
+      <svg class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      Visualizations
+    </div>
+
     <div class="nav-section">Reports</div>
     <div class="nav-item" onclick="navigate('coverage')">
       <svg class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
@@ -227,6 +262,12 @@
     <div class="nav-item" onclick="navigate('risks')">
       <svg class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
       Risk Register
+    </div>
+
+    <div class="nav-section">Config</div>
+    <div class="nav-item" onclick="navigate('settings')">
+      <svg class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      Settings
     </div>
   </div>
 
@@ -248,7 +289,7 @@
   </button>
   <!-- UST wordmark in topbar -->
   <div style="display:flex;align-items:center;gap:8px;margin-right:20px;">
-    <div style="width:4px;height:28px;background:var(--ust-orange);border-radius:2px;"></div>
+    <div style="width:4px;height:28px;background:var(--ust-teal);border-radius:2px;"></div>
     <span style="font-size:11px;color:var(--muted);letter-spacing:.04em;text-transform:uppercase;">UST Global</span>
   </div>
   <h1 id="page-title" style="font-size:15px;font-weight:600;flex:1;color:var(--text);">Dashboard</h1>
@@ -268,7 +309,7 @@
 
   <!-- Stat cards -->
   <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(175px,1fr));gap:14px;margin-bottom:28px;">
-    <div class="stat-card orange"><div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">Programs</div><div style="font-size:32px;font-weight:700;margin:6px 0;color:#fff;" id="s-programs">—</div><div style="font-size:11px;color:var(--ust-orange);">COBOL units</div></div>
+    <div class="stat-card orange"><div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">Programs</div><div style="font-size:32px;font-weight:700;margin:6px 0;color:#fff;" id="s-programs">—</div><div style="font-size:11px;color:#5ecdd1;">COBOL units</div></div>
     <div class="stat-card sky"><div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">Paragraphs</div><div style="font-size:32px;font-weight:700;margin:6px 0;color:#fff;" id="s-paragraphs">—</div><div style="font-size:11px;color:var(--ust-sky);">procedure nodes</div></div>
     <div class="stat-card navy"><div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">Data Items</div><div style="font-size:32px;font-weight:700;margin:6px 0;color:#fff;" id="s-data_items">—</div><div style="font-size:11px;color:#60a5fa;">symbol entries</div></div>
     <div class="stat-card teal"><div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">Statements</div><div style="font-size:32px;font-weight:700;margin:6px 0;color:#fff;" id="s-statements">—</div><div style="font-size:11px;color:#4DD6F5;">AST nodes</div></div>
@@ -293,7 +334,7 @@
   <!-- Rubric tracker -->
   <div class="card">
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">
-      <div style="width:4px;height:22px;background:var(--ust-orange);border-radius:2px;"></div>
+      <div style="width:4px;height:22px;background:var(--ust-teal);border-radius:2px;"></div>
       <div style="font-weight:700;font-size:14px;">Rubric Completion — UST CodeCrafter Championship 2026</div>
     </div>
     <div id="rubric-items"></div>
@@ -317,7 +358,7 @@
           <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px;">Copybook directory</label>
           <input id="copybooks-path" type="text" style="width:100%;" placeholder="external/carddemo/app/cpy" />
         </div>
-        <div style="display:flex;gap:10px;margin-top:8px;">
+        <div style="display:flex;gap:10px;margin-top:8px;flex-wrap:wrap;">
           <button class="btn btn-primary" id="run-btn" onclick="runPipeline()">
             <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
             Run Full Pipeline
@@ -326,6 +367,17 @@
             <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 12l2 2 4-4m6 2a9 9 0 1 1-18 0 9 9 0 0 1 18 0z"/></svg>
             Smoke Test
           </button>
+          <button class="btn btn-danger" id="cancel-btn" onclick="cancelPipeline()" style="display:none;">
+            <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+            Cancel
+          </button>
+        </div>
+        <div id="pipeline-progress-card" style="display:none;margin-top:14px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+            <div style="font-size:12px;color:var(--muted);">Pipeline running…</div>
+            <div style="font-size:12px;color:var(--ust-teal2);font-weight:600;" id="pipeline-progress-pct">0%</div>
+          </div>
+          <div class="progress-bar"><div class="progress-fill" id="pipeline-progress-fill" style="width:0%;transition:width .5s;"></div></div>
         </div>
       </div>
     </div>
@@ -375,7 +427,7 @@
   <div id="prog-detail" style="display:none;margin-top:24px;" class="fade-in">
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">
       <button class="btn btn-secondary" style="font-size:12px;padding:6px 12px;" onclick="closeDetail()">← Back</button>
-      <h2 id="detail-name" style="font-size:20px;font-weight:700;color:var(--ust-orange);"></h2>
+      <h2 id="detail-name" style="font-size:20px;font-weight:700;color:#5ecdd1;"></h2>
     </div>
 
     <div class="tabs">
@@ -426,7 +478,7 @@
       <button class="btn btn-secondary" style="font-size:12px;padding:5px 10px;" onclick="copyDiagramSource()">Copy source</button>
     </div>
     <div id="diag-loading" style="text-align:center;padding:40px;color:var(--muted);display:none;">
-      <svg class="spin" width="24" height="24" fill="none" stroke="var(--ust-orange)" stroke-width="2" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+      <svg class="spin" width="24" height="24" fill="none" stroke="var(--ust-teal2)" stroke-width="2" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
       <div style="margin-top:8px;font-size:13px;">Loading diagram…</div>
     </div>
     <div id="diag-empty" style="text-align:center;padding:40px;color:var(--muted);font-size:13px;display:none;">
@@ -443,9 +495,60 @@
 
 <!-- ─── SPEC GENERATOR ────────────────────────────────────────────────────── -->
 <section id="page-spec" class="fade-in" style="display:none;">
-  <div class="section-title">LLM Spec Generator</div>
-  <div class="section-sub">Grounded functional specifications from artifact UUIDs — powered by OpenAI / Gemini</div>
+  <div class="section-title">Application Modernization</div>
+  <div class="section-sub">Holistic spec from ANTLR artifacts + per-program LLM-grounded functional specifications</div>
 
+  <!-- ── Holistic Modernization Report ── -->
+  <div class="card" style="margin-bottom:20px;">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:20px;">
+      <div style="flex:1;">
+        <div style="font-weight:700;font-size:15px;color:var(--text);margin-bottom:6px;">
+          Holistic Application Modernization Report
+        </div>
+        <div style="font-size:13px;color:var(--muted);line-height:1.6;">
+          Generates a single 10-section report covering the entire CardDemo application:
+          architecture by domain, call graph, CICS transaction flow, JCL batch chain, shared data model,
+          business rules, risk register, and Java package blueprint — all derived from ANTLR-parsed artifacts.
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:10px;min-width:200px;">
+        <label style="font-size:12px;display:flex;align-items:center;gap:8px;cursor:pointer;color:var(--muted);">
+          <input type="checkbox" id="mod-use-llm" style="accent-color:var(--ust-teal);">
+          Enhance with LLM narrative
+        </label>
+        <button class="btn btn-primary" id="mod-btn" onclick="generateModernizationReport()" style="width:100%;justify-content:center;gap:8px;">
+          <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+          Generate Full Report
+        </button>
+      </div>
+    </div>
+
+    <!-- progress -->
+    <div id="mod-progress" style="display:none;margin-top:16px;">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <svg class="spin" width="18" height="18" fill="none" stroke="var(--ust-teal2)" stroke-width="2" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+        <span id="mod-progress-msg" style="font-size:13px;color:var(--muted);">Building holistic report…</span>
+      </div>
+    </div>
+
+    <!-- result -->
+    <div id="mod-result" style="display:none;margin-top:16px;">
+      <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;background:var(--sidebar-bg);border-radius:8px;border:1px solid var(--border);">
+        <svg width="20" height="20" fill="none" stroke="var(--ust-teal)" stroke-width="2" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+        <div style="flex:1;">
+          <div style="font-weight:600;font-size:13px;color:var(--text);" id="mod-result-title">Report generated</div>
+          <div style="font-size:12px;color:var(--muted);" id="mod-result-meta"></div>
+        </div>
+        <button class="btn btn-secondary" onclick="viewModernizationReport()" style="font-size:12px;padding:5px 12px;">View Report</button>
+        <button class="btn btn-secondary" onclick="copyModernizationReport()" style="font-size:12px;padding:5px 12px;">Copy</button>
+      </div>
+      <!-- inline preview -->
+      <div id="mod-preview" style="margin-top:12px;max-height:400px;overflow-y:auto;background:var(--sidebar-bg);border-radius:8px;border:1px solid var(--border);padding:16px;font-size:13px;line-height:1.7;white-space:pre-wrap;color:var(--text);"></div>
+    </div>
+  </div>
+
+  <!-- ── Per-program LLM Spec Generator ── -->
+  <div style="font-weight:600;font-size:13px;color:var(--muted);margin-bottom:12px;text-transform:uppercase;letter-spacing:0.06em;">Per-Program LLM Spec</div>
   <div style="display:grid;grid-template-columns:320px 1fr;gap:20px;align-items:start;">
     <div style="display:flex;flex-direction:column;gap:16px;">
       <div class="card">
@@ -479,15 +582,13 @@
         </div>
       </div>
       <div class="card">
-        <div style="font-weight:600;margin-bottom:10px;font-size:13px;">LLM Provider</div>
-        <div style="font-size:12px;color:var(--muted);line-height:1.8;">
-          Set before starting server:<br>
-          <code style="background:var(--surface2);padding:2px 6px;border-radius:4px;">LLM_PROVIDER=openai</code><br>
-          <code style="background:var(--surface2);padding:2px 6px;border-radius:4px;">LLM_PROVIDER=gemini</code><br><br>
-          API keys:<br>
-          <code style="background:var(--surface2);padding:2px 6px;border-radius:4px;">OPENAI_API_KEY=sk-…</code><br>
-          <code style="background:var(--surface2);padding:2px 6px;border-radius:4px;">GEMINI_API_KEY=AIza…</code>
-        </div>
+        <div style="font-weight:600;margin-bottom:10px;font-size:13px;">Active Model</div>
+        <div style="font-size:13px;color:var(--ust-sky);font-weight:600;margin-bottom:8px;" id="spec-model-badge">Loading…</div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:12px;">Change provider and model in Settings.</div>
+        <button onclick="navigate('settings')" class="btn btn-secondary" style="font-size:12px;padding:5px 12px;width:100%;justify-content:center;">
+          <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33"/></svg>
+          Open Settings
+        </button>
       </div>
     </div>
 
@@ -500,7 +601,7 @@
         </div>
       </div>
       <div id="spec-loading" style="text-align:center;padding:60px;display:none;">
-        <svg class="spin" width="28" height="28" fill="none" stroke="var(--ust-orange)" stroke-width="2" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+        <svg class="spin" width="28" height="28" fill="none" stroke="var(--ust-teal2)" stroke-width="2" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
         <div style="margin-top:12px;color:var(--muted);font-size:13px;">Calling LLM… this may take 20–30 s</div>
       </div>
       <div id="spec-output" style="min-height:300px;white-space:pre-wrap;font-size:14px;line-height:1.8;color:var(--text);">
@@ -530,15 +631,15 @@
         <div style="font-size:12px;color:var(--muted);font-weight:600;margin-bottom:8px;text-transform:uppercase;letter-spacing:.05em;">User Admin Context</div>
         <div style="display:flex;flex-direction:column;gap:6px;">
           <button class="btn btn-secondary" style="font-size:12px;width:100%;justify-content:flex-start;" onclick="quickEmit('COUSR01C')">
-            <svg width="12" height="12" fill="var(--ust-orange)" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+            <svg width="12" height="12" fill="var(--ust-teal)" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
             COUSR01C — User Create
           </button>
           <button class="btn btn-secondary" style="font-size:12px;width:100%;justify-content:flex-start;" onclick="quickEmit('COUSR02C')">
-            <svg width="12" height="12" fill="var(--ust-orange)" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+            <svg width="12" height="12" fill="var(--ust-teal)" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
             COUSR02C — User Update
           </button>
           <button class="btn btn-secondary" style="font-size:12px;width:100%;justify-content:flex-start;" onclick="quickEmit('COUSR03C')">
-            <svg width="12" height="12" fill="var(--ust-orange)" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+            <svg width="12" height="12" fill="var(--ust-teal)" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
             COUSR03C — User Delete
           </button>
         </div>
@@ -551,7 +652,7 @@
         <button class="btn btn-secondary" style="font-size:12px;padding:5px 10px;" onclick="copyJava()">Copy</button>
       </div>
       <div id="emit-loading" style="text-align:center;padding:60px;display:none;">
-        <svg class="spin" width="28" height="28" fill="none" stroke="var(--ust-orange)" stroke-width="2" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+        <svg class="spin" width="28" height="28" fill="none" stroke="var(--ust-teal2)" stroke-width="2" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
         <div style="margin-top:12px;color:var(--muted);font-size:13px;">Generating Java…</div>
       </div>
       <pre id="emit-output" style="max-height:600px;overflow:auto;"><code class="language-java" id="emit-code" style="font-size:12px;">// Select a program and click Emit Java</code></pre>
@@ -568,32 +669,32 @@
     <div class="card">
       <div style="font-weight:600;margin-bottom:20px;font-size:14px;">Pipeline State Machine</div>
       <div style="display:flex;flex-direction:column;gap:0;">
-        <div class="lg-node" style="background:rgba(232,75,35,.15);border:1px solid var(--ust-orange);color:var(--ust-orange);">
+        <div class="lg-node" style="background:#0d2c30;border:1px solid var(--ust-teal2);color:#a8eef0;">
           <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
           retrieve_artifacts(uuid)
         </div>
         <div style="padding-left:28px;color:var(--muted);font-size:22px;line-height:1.2;">↓</div>
-        <div class="lg-node" style="background:rgba(0,163,224,.15);border:1px solid var(--ust-sky);color:var(--ust-sky);">
+        <div class="lg-node" style="background:#0d2535;border:1px solid var(--ust-sky);color:#60c8fa;">
           <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/></svg>
           build_prompt(slice)
         </div>
         <div style="padding-left:28px;color:var(--muted);font-size:22px;line-height:1.2;">↓</div>
-        <div class="lg-node" style="background:rgba(0,82,165,.25);border:1px solid #0052A5;color:#60a5fa;">
+        <div class="lg-node" style="background:#0d1e2a;border:1px solid var(--ust-sky);color:#93d5f7;">
           <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83"/></svg>
           generate_spec (OpenAI / Gemini)
         </div>
         <div style="padding-left:28px;color:var(--muted);font-size:22px;line-height:1.2;">↓</div>
-        <div class="lg-node" style="background:rgba(34,197,94,.15);border:1px solid #22c55e;color:#4ade80;">
+        <div class="lg-node" style="background:#0e2e22;border:1px solid #22c55e;color:#4ade80;">
           <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
           ground_check(spec, slice)
         </div>
         <div style="padding-left:28px;color:var(--muted);font-size:22px;line-height:1.2;">↓</div>
-        <div class="lg-node" style="background:rgba(245,158,11,.15);border:1px solid #f59e0b;color:#fbbf24;">
+        <div class="lg-node" style="background:#2b2008;border:1px solid #f59e0b;color:#fbbf24;">
           <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/></svg>
           emit_report
         </div>
         <div style="padding-left:28px;color:var(--muted);font-size:22px;line-height:1.2;">↓</div>
-        <div class="lg-node" style="background:rgba(123,168,212,.08);border:1px solid var(--border);color:var(--muted);">
+        <div class="lg-node" style="background:#1a2530;border:1px solid var(--border);color:var(--muted);">
           END
         </div>
       </div>
@@ -605,8 +706,8 @@
         Every sentence in the generated spec is checked against the artifact slice to ensure it has evidence:
       </div>
       <div style="display:flex;flex-direction:column;gap:10px;">
-        <div class="card-sm" style="border-left:3px solid var(--ust-orange);">
-          <div style="font-weight:600;font-size:13px;color:var(--ust-orange);margin-bottom:4px;">UUID Reference Check</div>
+        <div class="card-sm" style="border-left:3px solid var(--ust-teal);">
+          <div style="font-weight:600;font-size:13px;color:#5ecdd1;margin-bottom:4px;">UUID Reference Check</div>
           <div style="font-size:12px;color:var(--muted);">Sentence cites a UUID from the artifact slice → grounded</div>
         </div>
         <div class="card-sm" style="border-left:3px solid var(--ust-sky);">
@@ -694,13 +795,350 @@
   </div>
 </section>
 
+<!-- ─── VISUALIZATIONS ────────────────────────────────────────────────────── -->
+<section id="page-visualizations" class="fade-in" style="display:none;">
+  <div class="section-title">Visualizations</div>
+  <div class="section-sub">AST trees, control flow graphs, symbol tables, and complexity metrics per program</div>
+
+  <div style="display:flex;gap:12px;margin-bottom:20px;align-items:center;">
+    <select id="viz-program" style="width:260px;" onchange="loadViz()">
+      <option value="">— select program —</option>
+    </select>
+    <span style="font-size:12px;color:var(--muted);">Select a program to visualize its internals</span>
+  </div>
+
+  <div class="tabs" id="viz-tabs" role="tablist">
+    <div class="tab active" role="tab" tabindex="0" onclick="switchVizTab('ast')" onkeydown="if(event.key==='Enter'||event.key===' ')switchVizTab('ast')">AST Tree</div>
+    <div class="tab" role="tab" tabindex="0" onclick="switchVizTab('cfg')" onkeydown="if(event.key==='Enter'||event.key===' ')switchVizTab('cfg')">Control Flow</div>
+    <div class="tab" role="tab" tabindex="0" onclick="switchVizTab('symbols')" onkeydown="if(event.key==='Enter'||event.key===' ')switchVizTab('symbols')">Symbol Table</div>
+    <div class="tab" role="tab" tabindex="0" onclick="switchVizTab('complexity')" onkeydown="if(event.key==='Enter'||event.key===' ')switchVizTab('complexity')">Complexity</div>
+  </div>
+
+  <div id="viz-tab-ast" class="tab-panel fade-in">
+    <div class="card" id="ast-container" style="max-height:620px;overflow:auto;">
+      <span style="color:var(--muted);font-size:13px;">Select a program above to view its AST.</span>
+    </div>
+  </div>
+  <div id="viz-tab-cfg" class="tab-panel fade-in" style="display:none;">
+    <div class="card mermaid-wrap" id="cfg-container">
+      <span style="color:var(--muted);font-size:13px;">Select a program above to view its control flow graph.</span>
+    </div>
+  </div>
+  <div id="viz-tab-symbols" class="tab-panel fade-in" style="display:none;">
+    <div class="card" id="symbols-container">
+      <span style="color:var(--muted);font-size:13px;">Select a program above to browse its symbol table.</span>
+    </div>
+  </div>
+  <div id="viz-tab-complexity" class="tab-panel fade-in" style="display:none;">
+    <div class="card" id="complexity-container">
+      <span style="color:var(--muted);font-size:13px;">Select a program above to view complexity metrics.</span>
+    </div>
+  </div>
+</section>
+
+<!-- ─── LAYER EXPLORER ────────────────────────────────────────────────────── -->
+<section id="page-layers" class="fade-in" style="display:none;">
+  <div class="section-title">Pipeline Layer Explorer</div>
+  <div class="section-sub">Visual breakdown of every artifact layer — from raw COBOL → structured AST → graphs → business rules → quality metrics</div>
+
+  <!-- Pipeline flow diagram -->
+  <div style="display:flex;align-items:center;gap:6px;overflow-x:auto;padding:16px 0 24px;margin-bottom:8px;">
+    <div id="lx-flow-l1" class="lx-flow-node" onclick="scrollToLayer('l1')" style="cursor:pointer;">
+      <div style="font-size:10px;font-weight:700;color:#5ecdd1;letter-spacing:.06em;">L1</div>
+      <div style="font-size:12px;font-weight:600;">AST Builder</div>
+    </div>
+    <div class="lx-arrow">→</div>
+    <div id="lx-flow-l2" class="lx-flow-node" onclick="scrollToLayer('l2')" style="cursor:pointer;">
+      <div style="font-size:10px;font-weight:700;color:#55d4eb;letter-spacing:.06em;">L2</div>
+      <div style="font-size:12px;font-weight:600;">Symbol Table</div>
+    </div>
+    <div class="lx-arrow">→</div>
+    <div id="lx-flow-l3" class="lx-flow-node" onclick="scrollToLayer('l3')" style="cursor:pointer;">
+      <div style="font-size:10px;font-weight:700;color:#34d399;letter-spacing:.06em;">L3</div>
+      <div style="font-size:12px;font-weight:600;">CFG + Def-Use</div>
+    </div>
+    <div class="lx-arrow">→</div>
+    <div id="lx-flow-l4" class="lx-flow-node" onclick="scrollToLayer('l4')" style="cursor:pointer;">
+      <div style="font-size:10px;font-weight:700;color:#fbbf24;letter-spacing:.06em;">L4</div>
+      <div style="font-size:12px;font-weight:600;">Inter-Program</div>
+    </div>
+    <div class="lx-arrow">→</div>
+    <div id="lx-flow-l5" class="lx-flow-node" onclick="scrollToLayer('l5')" style="cursor:pointer;">
+      <div style="font-size:10px;font-weight:700;color:#d876d6;letter-spacing:.06em;">L5</div>
+      <div style="font-size:12px;font-weight:600;">Business Rules</div>
+    </div>
+    <div class="lx-arrow">→</div>
+    <div id="lx-flow-l6" class="lx-flow-node" onclick="scrollToLayer('l6')" style="cursor:pointer;">
+      <div style="font-size:10px;font-weight:700;color:#60c8fa;letter-spacing:.06em;">L6</div>
+      <div style="font-size:12px;font-weight:600;">Resources</div>
+    </div>
+    <div class="lx-arrow">→</div>
+    <div id="lx-flow-l7" class="lx-flow-node" onclick="scrollToLayer('l7')" style="cursor:pointer;">
+      <div style="font-size:10px;font-weight:700;color:#f87171;letter-spacing:.06em;">L7</div>
+      <div style="font-size:12px;font-weight:600;">Quality</div>
+    </div>
+  </div>
+
+  <div id="lx-loading" style="color:var(--muted);font-size:13px;padding:16px 0;">Loading layer data…</div>
+  <div id="lx-content" style="display:none;">
+
+    <!-- L1 -->
+    <div id="lx-l1" class="lx-card" style="border-left:3px solid #5ecdd1;">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+        <span style="width:36px;height:36px;border-radius:8px;background:#15373e;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:14px;color:#5ecdd1;flex-shrink:0;">L1</span>
+        <div>
+          <div style="font-weight:700;font-size:15px;">AST Builder — ProLeap ANTLR4 COBOL Parser</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:2px;">Parses every .CBL file into a typed AST. Copybook COPY/REPLACE expansion with provenance tracking. UUID5-stable node identity.</div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;">
+        <div class="card-sm" style="text-align:center;">
+          <div style="font-size:28px;font-weight:700;color:#5ecdd1;" id="lx-l1-programs">—</div>
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">Programs</div>
+        </div>
+        <div class="card-sm" style="text-align:center;">
+          <div style="font-size:28px;font-weight:700;color:#5ecdd1;" id="lx-l1-paragraphs">—</div>
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">Paragraphs</div>
+        </div>
+        <div class="card-sm" style="text-align:center;">
+          <div style="font-size:28px;font-weight:700;color:#5ecdd1;" id="lx-l1-statements">—</div>
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">Statements</div>
+        </div>
+      </div>
+      <div style="margin-top:12px;font-size:12px;color:var(--muted);">Output: <code style="color:#5ecdd1;">nodes</code> table · JSON artifacts in <code style="color:#5ecdd1;">output/layer1/</code></div>
+    </div>
+
+    <!-- L2 -->
+    <div id="lx-l2" class="lx-card" style="border-left:3px solid #55d4eb;">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+        <span style="width:36px;height:36px;border-radius:8px;background:#0d2e35;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:14px;color:#55d4eb;flex-shrink:0;">L2</span>
+        <div>
+          <div style="font-weight:700;font-size:15px;">Symbol Table &amp; Data Dictionary</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:2px;">Extracts every data item with PIC/USAGE → canonical type (BigDecimal / long / String). Level-88 condition names resolved to parent variable comparisons.</div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;">
+        <div class="card-sm" style="text-align:center;">
+          <div style="font-size:28px;font-weight:700;color:#55d4eb;" id="lx-l2-items">—</div>
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">Data Items</div>
+        </div>
+        <div class="card-sm" style="text-align:center;">
+          <div style="font-size:28px;font-weight:700;color:#55d4eb;" id="lx-l2-cond88">—</div>
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">88-Level Conditions</div>
+        </div>
+        <div class="card-sm" style="text-align:center;">
+          <div style="font-size:28px;font-weight:700;color:#55d4eb;" id="lx-l2-copybooks">—</div>
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">Copybook References</div>
+        </div>
+      </div>
+      <div style="margin-top:12px;font-size:12px;color:var(--muted);">Output: <code style="color:#55d4eb;">data_items</code> · <code style="color:#55d4eb;">conditions_88</code> · <code style="color:#55d4eb;">copybook_use</code> tables · JSON in <code style="color:#55d4eb;">output/layer2/</code></div>
+    </div>
+
+    <!-- L3 -->
+    <div id="lx-l3" class="lx-card" style="border-left:3px solid #34d399;">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+        <span style="width:36px;height:36px;border-radius:8px;background:#0e2e22;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:14px;color:#34d399;flex-shrink:0;">L3</span>
+        <div>
+          <div style="font-weight:700;font-size:15px;">Control-Flow Graph + Def-Use Chains</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:2px;">Builds intra-program CFG with typed edges: PERFORM, BRANCH_TRUE, BRANCH_FALSE, BRANCH_WHEN, FALLTHROUGH, GOTO, LOOP_BACK. Tracks every data-item read and write.</div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:14px;">
+        <div class="card-sm" style="text-align:center;">
+          <div style="font-size:28px;font-weight:700;color:#34d399;" id="lx-l3-cfg">—</div>
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">CFG Edges</div>
+        </div>
+        <div class="card-sm" style="text-align:center;">
+          <div style="font-size:28px;font-weight:700;color:#34d399;" id="lx-l3-branch">—</div>
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">Branch Edges</div>
+        </div>
+        <div class="card-sm" style="text-align:center;">
+          <div style="font-size:28px;font-weight:700;color:#34d399;" id="lx-l3-du">—</div>
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">Def-Use Entries</div>
+        </div>
+      </div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:6px;">Edge type breakdown:</div>
+      <div id="lx-l3-breakdown" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
+      <div style="margin-top:12px;font-size:12px;color:var(--muted);">Output: <code style="color:#34d399;">control_flow</code> · <code style="color:#34d399;">def_use</code> · <code style="color:#34d399;">complexity_metrics</code> · JSON in <code style="color:#34d399;">output/layer3/</code></div>
+    </div>
+
+    <!-- L4 -->
+    <div id="lx-l4" class="lx-card" style="border-left:3px solid #fbbf24;">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+        <span style="width:36px;height:36px;border-radius:8px;background:#2b2008;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:14px;color:#fbbf24;flex-shrink:0;">L4</span>
+        <div>
+          <div style="font-weight:700;font-size:15px;">Inter-Program Graphs</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:2px;">Call graph (static CALL + CICS LINK/XCTL), file I/O graph, CICS transaction flow, JCL job chain, and JCL DD → COBOL logical file bindings.</div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(2,1fr) repeat(2,1fr);gap:12px;">
+        <div class="card-sm" style="text-align:center;">
+          <div style="font-size:24px;font-weight:700;color:#fbbf24;" id="lx-l4-calls">—</div>
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">Call Edges</div>
+          <div style="font-size:11px;color:var(--muted);" id="lx-l4-resolved"></div>
+        </div>
+        <div class="card-sm" style="text-align:center;">
+          <div style="font-size:24px;font-weight:700;color:#fbbf24;" id="lx-l4-fileio">—</div>
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">File I/O Ops</div>
+        </div>
+        <div class="card-sm" style="text-align:center;">
+          <div style="font-size:24px;font-weight:700;color:#fbbf24;" id="lx-l4-tx">—</div>
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">Tx Flow Edges</div>
+        </div>
+        <div class="card-sm" style="text-align:center;">
+          <div style="font-size:24px;font-weight:700;color:#fbbf24;" id="lx-l4-jcl">—</div>
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">JCL Bindings</div>
+        </div>
+      </div>
+      <div style="margin-top:12px;font-size:12px;color:var(--muted);">Output: <code style="color:#fbbf24;">call_graph</code> · <code style="color:#fbbf24;">file_io</code> · <code style="color:#fbbf24;">transaction_flow</code> · <code style="color:#fbbf24;">jcl_program_binding</code></div>
+    </div>
+
+    <!-- L5 -->
+    <div id="lx-l5" class="lx-card" style="border-left:3px solid #d876d6;">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+        <span style="width:36px;height:36px;border-radius:8px;background:#231228;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:14px;color:#d876d6;flex-shrink:0;">L5</span>
+        <div>
+          <div style="font-weight:700;font-size:15px;">Business Rules &amp; Arithmetic Specs</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:2px;">Extracts every IF/EVALUATE predicate as a structured rule. Resolves 88-level condition names. Parses arithmetic statements into expression trees for Java codegen.</div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;">
+        <div class="card-sm" style="text-align:center;">
+          <div style="font-size:24px;font-weight:700;color:#d876d6;" id="lx-l5-total">—</div>
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">Total Rules</div>
+        </div>
+        <div class="card-sm" style="text-align:center;">
+          <div style="font-size:24px;font-weight:700;color:#d876d6;" id="lx-l5-if">—</div>
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">IF Rules</div>
+        </div>
+        <div class="card-sm" style="text-align:center;">
+          <div style="font-size:24px;font-weight:700;color:#d876d6;" id="lx-l5-eval">—</div>
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">EVALUATE Rules</div>
+        </div>
+        <div class="card-sm" style="text-align:center;">
+          <div style="font-size:24px;font-weight:700;color:#d876d6;" id="lx-l5-arith">—</div>
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">Arithmetic Specs</div>
+        </div>
+      </div>
+      <div style="margin-top:12px;font-size:12px;color:var(--muted);">Output: <code style="color:#d876d6;">business_rules</code> · <code style="color:#d876d6;">arithmetic_specs</code> · JSON in <code style="color:#d876d6;">output/layer5/</code></div>
+    </div>
+
+    <!-- L6 -->
+    <div id="lx-l6" class="lx-card" style="border-left:3px solid #60c8fa;">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+        <span style="width:36px;height:36px;border-radius:8px;background:#0d2535;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:14px;color:#60c8fa;flex-shrink:0;">L6</span>
+        <div>
+          <div style="font-weight:700;font-size:15px;">Resources — BMS, CSD, JCL, SQL, CICS</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:2px;">BMS screen/field catalog, CICS CSD definitions (PROGRAM/TRANSACTION/MAPSET), JCL job steps, embedded SQL table references, CICS verb extraction.</div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;">
+        <div class="card-sm" style="text-align:center;">
+          <div style="font-size:28px;font-weight:700;color:#60c8fa;" id="lx-l6-bms">—</div>
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">BMS Screen Maps</div>
+        </div>
+        <div class="card-sm" style="text-align:center;">
+          <div style="font-size:28px;font-weight:700;color:#60c8fa;" id="lx-l6-csd">—</div>
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">CSD Definitions</div>
+        </div>
+      </div>
+      <div style="margin-top:12px;font-size:12px;color:var(--muted);">Output: <code style="color:#60c8fa;">screen_map</code> · <code style="color:#60c8fa;">csd_catalog</code> · <code style="color:#60c8fa;">jcl_job</code> · <code style="color:#60c8fa;">jcl_dd</code></div>
+    </div>
+
+    <!-- L7 -->
+    <div id="lx-l7" class="lx-card" style="border-left:3px solid #f87171;">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+        <span style="width:36px;height:36px;border-radius:8px;background:#2c1414;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:14px;color:#f87171;flex-shrink:0;">L7</span>
+        <div>
+          <div style="font-weight:700;font-size:15px;">Quality — Coverage, Complexity &amp; Risk</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:2px;">Parse coverage report. Cyclomatic complexity per paragraph. Dead-code detection. Migration risk register (ALTER, dynamic CALL, HANDLE CONDITION, ODO, REDEFINES overlaps).</div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;">
+        <div class="card-sm" style="text-align:center;">
+          <div style="font-size:28px;font-weight:700;color:#34d399;" id="lx-l7-cov">—</div>
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">Coverage %</div>
+        </div>
+        <div class="card-sm" style="text-align:center;">
+          <div style="font-size:28px;font-weight:700;color:#f87171;" id="lx-l7-high">—</div>
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">High Risk</div>
+        </div>
+        <div class="card-sm" style="text-align:center;">
+          <div style="font-size:28px;font-weight:700;color:#fbbf24;" id="lx-l7-med">—</div>
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">Medium Risk</div>
+        </div>
+        <div class="card-sm" style="text-align:center;">
+          <div style="font-size:28px;font-weight:700;color:#34d399;" id="lx-l7-low">—</div>
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">Low Risk</div>
+        </div>
+      </div>
+      <div style="margin-top:12px;font-size:12px;color:var(--muted);">Output: <code style="color:#f87171;">parse_coverage</code> · <code style="color:#f87171;">complexity_metrics</code> · <code style="color:#f87171;">risk_register</code></div>
+    </div>
+
+  </div><!-- /lx-content -->
+</section>
+
+<!-- ─── SETTINGS ──────────────────────────────────────────────────────────── -->
+<section id="page-settings" class="fade-in" style="display:none;">
+  <div class="section-title">Settings</div>
+  <div class="section-sub">Configure LLM provider, model, and API keys — persisted to .env</div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start;">
+    <div class="card">
+      <div style="font-weight:600;margin-bottom:16px;font-size:14px;">LLM Configuration</div>
+      <div style="display:flex;flex-direction:column;gap:14px;">
+        <div>
+          <label for="settings-provider" style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px;">Provider</label>
+          <select id="settings-provider" style="width:100%;" onchange="onProviderChange()">
+            <option value="openai">OpenAI</option>
+            <option value="gemini">Google Gemini</option>
+          </select>
+        </div>
+        <div>
+          <label for="settings-model" style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px;">Model</label>
+          <select id="settings-model" style="width:100%;">
+            <option>Loading…</option>
+          </select>
+        </div>
+        <div id="settings-openai-key-wrap">
+          <label for="settings-openai-key" style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px;">OpenAI API Key</label>
+          <input id="settings-openai-key" type="password" placeholder="sk-… (leave blank to keep current)" style="width:100%;" />
+        </div>
+        <div id="settings-gemini-key-wrap" style="display:none;">
+          <label for="settings-gemini-key" style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px;">Gemini API Key</label>
+          <input id="settings-gemini-key" type="password" placeholder="AIza… (leave blank to keep current)" style="width:100%;" />
+        </div>
+        <button class="btn btn-primary" onclick="saveSettings()" style="width:100%;justify-content:center;">
+          <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+          Save Settings
+        </button>
+        <div id="settings-saved" style="color:#34d399;font-size:13px;text-align:center;display:none;">✓ Settings saved successfully</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div style="font-weight:600;margin-bottom:16px;font-size:14px;">Current Configuration</div>
+      <div id="settings-current-info" style="font-size:13px;color:var(--muted);">Loading…</div>
+      <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border);">
+        <div style="font-size:12px;color:var(--muted);font-weight:600;margin-bottom:10px;text-transform:uppercase;letter-spacing:.05em;">.env File Location</div>
+        <code style="font-size:11px;background:var(--surface2);padding:6px 10px;border-radius:6px;display:block;color:var(--ust-sky);">project-root/.env</code>
+        <div style="font-size:12px;color:var(--muted);margin-top:8px;">API keys entered here are written to .env and loaded at server start. Restart not required for model changes.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
 </main>
 </div>
 
 <div id="toast"></div>
 
 <!-- ══ JAVASCRIPT ════════════════════════════════════════════════════════════ -->
+<script type="module" src="/src/app.ts"></script>
 <script>
+/* Legacy inline JS — kept as fallback if TypeScript build is unavailable.
+   When served from ui/dist/ the module script above takes precedence. */
+if (typeof navigate === 'undefined') {
 const API = '';
 let currentPage = 'dashboard';
 let programs = [];
@@ -715,7 +1153,7 @@ let riskAllRows = [];
 function showToast(msg, type = 'ok') {
   const t = document.getElementById('toast');
   t.textContent = msg;
-  t.style.background = type === 'error' ? '#ef4444' : 'var(--ust-orange)';
+  t.style.background = type === 'error' ? '#ef4444' : 'var(--ust-teal)';
   t.style.display = 'block';
   setTimeout(() => t.style.display = 'none', 2200);
 }
@@ -789,7 +1227,7 @@ async function loadDashboard() {
       data: { labels: ['Parsed OK', 'Failed'],
         datasets: [{ data: [s.ok_files, s.total_files - s.ok_files],
           backgroundColor: ['#4ade80','#f87171'], borderWidth: 0 }] },
-      options: { plugins: { legend: { labels: { color: '#7BA8D4', font: { size: 12 } } } }, cutout: '70%' }
+      options: { plugins: { legend: { labels: { color: '#7e8c9a', font: { size: 12 } } } }, cutout: '70%' }
     });
 
     const lCtx = document.getElementById('layer-chart').getContext('2d');
@@ -800,14 +1238,14 @@ async function loadDashboard() {
         labels: ['Programs','Paragraphs','Data Items','Stmts','Bus. Rules','Call Edges','Risks'],
         datasets: [{ data: [s.programs, s.paragraphs, s.data_items, s.statements,
           s.business_rules, s.call_edges, s.risks],
-          backgroundColor: ['#E84B23','#00A3E0','#0052A5','#00BCD4','#4ade80','#fbbf24','#f87171'],
+          backgroundColor: ['#006e74','#0097ab','#009ddc','#00afd9','#4ade80','#fbbf24','#f87171'],
           borderRadius: 4, borderWidth: 0 }]
       },
       options: {
         plugins: { legend: { display: false } },
         scales: {
-          x: { ticks: { color: '#7BA8D4', font: { size: 11 } }, grid: { color: '#0A3A80' } },
-          y: { ticks: { color: '#7BA8D4' }, grid: { color: '#0A3A80' } }
+          x: { ticks: { color: '#7e8c9a', font: { size: 11 } }, grid: { color: '#2b333f' } },
+          y: { ticks: { color: '#7e8c9a' }, grid: { color: '#2b333f' } }
         }
       }
     });
@@ -861,13 +1299,13 @@ function renderProgramsTable(progs) {
   }
   tbody.innerHTML = progs.map(p => `
     <tr style="cursor:pointer;" onclick="openProgram('${p.name}')">
-      <td><span style="font-weight:700;color:var(--ust-orange);">${p.name || '—'}</span></td>
+      <td><span style="font-weight:700;color:#5ecdd1;">${p.name || '—'}</span></td>
       <td><span style="font-size:11px;color:var(--muted);">${(p.source_file||'').split('/').pop()}</span></td>
       <td><span class="badge badge-sky">${p.para_count ?? 0}</span></td>
       <td>${p.item_count ?? 0}</td>
       <td>${p.rule_count ?? 0}</td>
       <td>${p.risk_count > 0 ? `<span class="badge badge-red">${p.risk_count}</span>` : '<span class="badge badge-gray">0</span>'}</td>
-      <td><span style="font-size:12px;color:var(--ust-orange);">View →</span></td>
+      <td><span style="font-size:12px;color:#5ecdd1;">View →</span></td>
     </tr>`).join('');
 }
 
@@ -953,8 +1391,8 @@ function renderProgRisks(rows) {
 
 // ── Diagrams ──────────────────────────────────────────────────────────────────
 mermaid.initialize({ startOnLoad: false, theme: 'dark', darkMode: true,
-  themeVariables: { primaryColor: '#003087', primaryTextColor: '#EDF2FF', lineColor: '#E84B23',
-    secondaryColor: '#001640', tertiaryColor: '#002060' } });
+  themeVariables: { primaryColor: '#003c51', primaryTextColor: '#f0f4f4', lineColor: '#0097ab',
+    secondaryColor: '#1c242c', tertiaryColor: '#252c32' } });
 
 async function loadDiagram(name, btn) {
   document.querySelectorAll('.diag-btn').forEach(b => b.classList.remove('active'));
@@ -1161,7 +1599,7 @@ async function loadCoverage() {
     covBar2 = new Chart(ctx2, {
       type:'bar',
       data:{ labels: Object.keys(counts),
-        datasets:[{ data: Object.values(counts), backgroundColor:'#E84B23', borderRadius:4, borderWidth:0 }] },
+        datasets:[{ data: Object.values(counts), backgroundColor:'#006e74', borderRadius:4, borderWidth:0 }] },
       options:{ plugins:{ legend:{ display:false } }, indexAxis:'y',
         scales:{ x:{ ticks:{ color:'#7BA8D4' }, grid:{ color:'#0A3A80' } },
                  y:{ ticks:{ color:'#7BA8D4', font:{ size:11 } }, grid:{ display:false } } } }
@@ -1214,7 +1652,7 @@ async function loadRisks() {
     riskBar2 = new Chart(ctx2, {
       type:'bar',
       data:{ labels: Object.keys(kinds),
-        datasets:[{ data: Object.values(kinds), backgroundColor:'#E84B23', borderRadius:4, borderWidth:0 }] },
+        datasets:[{ data: Object.values(kinds), backgroundColor:'#006e74', borderRadius:4, borderWidth:0 }] },
       options:{ plugins:{ legend:{ display:false } }, indexAxis:'y',
         scales:{ x:{ ticks:{ color:'#7BA8D4' }, grid:{ color:'#0A3A80' } },
                  y:{ ticks:{ color:'#7BA8D4', font:{ size:11 } }, grid:{ display:false } } } }
@@ -1247,6 +1685,7 @@ function filterRiskTable() {
 checkHealth();
 setInterval(checkHealth, 30000);
 loadDashboard();
+} // end legacy fallback
 </script>
 </body>
 </html>

@@ -180,6 +180,19 @@ CREATE TABLE IF NOT EXISTS jcl_dependency (
     consumer_disp   TEXT
 );
 
+-- G3: JCL DD → COBOL logical file binding
+CREATE TABLE IF NOT EXISTS jcl_program_binding (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_name            TEXT NOT NULL,
+    step_name           TEXT,
+    program_name        TEXT NOT NULL,
+    dd_name             TEXT NOT NULL,
+    dataset_name        TEXT,
+    disposition         TEXT,
+    cobol_logical_file  TEXT,
+    program_uuid        TEXT REFERENCES nodes(uuid)
+);
+
 -- ── Layer 4: copybook usage ────────────────────────────────────
 CREATE TABLE IF NOT EXISTS copybook_use (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,

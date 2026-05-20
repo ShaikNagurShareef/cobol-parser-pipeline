@@ -358,9 +358,13 @@ public class CobolCstExporter {
             sb.append(",\"text\":"); appendJsonStr(sb, getText(s, 80));
             sb.append("}");
         } else if (findFirst(s, IfStatementContext.class) != null) {
+            IfStatementContext ifCtx = findFirst(s, IfStatementContext.class);
             sb.append("{\"kind\":\"IF\"");
             sb.append(",\"start_line\":").append(getStart(s));
-            sb.append(",\"text\":"); appendJsonStr(sb, getText(s, 120));
+            sb.append(",\"text\":"); appendJsonStr(sb, getText(s, 200));
+            // G2: extract PERFORM targets from then / else branches
+            sb.append(",\"then_performs\":"); appendPerformList(sb, ifCtx.ifThen());
+            sb.append(",\"else_performs\":"); appendPerformList(sb, ifCtx.ifElse());
             sb.append("}");
         } else if (findFirst(s, EvaluateStatementContext.class) != null) {
             sb.append("{\"kind\":\"EVALUATE\"");
@@ -633,6 +637,30 @@ public class CobolCstExporter {
         sb.append(",\"").append(key).append("\":");
         if (value == null) sb.append("null");
         else appendJsonStr(sb, value);
+    }
+
+    /** G2: emit JSON array of PERFORM paragraph targets found in an if-branch.
+     *  Uses findFirst to traverse the full subtree of each statement. */
+    static void appendPerformList(StringBuilder sb, ParserRuleContext branch) {
+        sb.append("[");
+        if (branch == null) { sb.append("]"); return; }
+        boolean first = true;
+        // branch.statement() returns direct StatementContext children
+        List<StatementContext> stmts = branch.getRuleContexts(StatementContext.class);
+        for (StatementContext stmt : stmts) {
+            // findFirst does a deep DFS — traverses PerformStatement → PerformProcedureStatement
+            PerformProcedureStatementContext pp = findFirst(stmt, PerformProcedureStatementContext.class);
+            if (pp == null) continue;
+            List<ProcedureNameContext> names = pp.procedureName();
+            if (names == null || names.isEmpty()) continue;
+            String name = names.get(0).getText().toUpperCase().trim();
+            if (!name.isEmpty()) {
+                if (!first) sb.append(",");
+                appendJsonStr(sb, name);
+                first = false;
+            }
+        }
+        sb.append("]");
     }
 
     static void appendJsonStr(StringBuilder sb, String value) {

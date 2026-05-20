@@ -29,7 +29,7 @@ def assemble_paragraph_slice(para_uuid: str, con: sqlite3.Connection) -> dict[st
     if not para:
         return {}
 
-    prog_uuid = para.get("parent_uuid")
+    prog_uuid = para["parent_uuid"]
 
     # Statements
     stmts = _fetch_children(con, para_uuid)
@@ -37,7 +37,7 @@ def assemble_paragraph_slice(para_uuid: str, con: sqlite3.Connection) -> dict[st
     # Data items: gather all identifiers mentioned in statements
     item_names: set[str] = set()
     for stmt in stmts:
-        p = json.loads(stmt.get("payload_json") or "{}")
+        p = json.loads(stmt["payload_json"] or "{}" if stmt["payload_json"] else "{}")
         text = p.get("text", "") or ""
         item_names.update(_extract_cobol_identifiers(text))
 
@@ -86,10 +86,26 @@ def assemble_paragraph_slice(para_uuid: str, con: sqlite3.Connection) -> dict[st
         "SELECT * FROM control_flow WHERE from_uuid=?", (para_uuid,)
     ).fetchall()]
 
+    # G1: conditions_88 for all data items in scope
+    conditions_88: list[dict] = []
+    if data_items:
+        item_uuids = [item["uuid"] for item in data_items]
+        placeholders = ",".join("?" * len(item_uuids))
+        rows = con.execute(
+            f"""
+            SELECT c.uuid, c.name, c.value_raw, d.name AS parent_name
+            FROM conditions_88 c JOIN data_items d ON d.uuid=c.parent_uuid
+            WHERE c.parent_uuid IN ({placeholders})
+            """,
+            item_uuids,
+        ).fetchall()
+        conditions_88 = [dict(r) for r in rows]
+
     return {
         "paragraph": _node_to_dict(para),
         "statements": [_node_to_dict(s) for s in stmts],
         "data_items": data_items,
+        "conditions_88": conditions_88,
         "def_use": du_rows,
         "business_rules": br_rows,
         "file_io": fio_rows,
