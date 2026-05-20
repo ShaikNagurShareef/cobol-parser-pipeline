@@ -216,27 +216,37 @@ def _emit_stmt(stmt: dict, indent: int = 2) -> list[str]:
 
     if ir == "Switch":
         text = stmt.get("text", "")
-        return [
-            f"{pad}// EVALUATE: {_truncate(text, 60)}",
-            f"{pad}// TODO: convert EVALUATE to switch/if-else",
-        ]
+        return _emit_evaluate(text, pad)
 
     if ir == "ArithOp":
-        kind = stmt.get("kind", "OP")
-        text = stmt.get("text", "")
-        return [f"{pad}// {kind}: {_truncate(text, 60)}"]
+        return _emit_arith(stmt, pad)
 
     if ir == "FileRead":
         text = stmt.get("text", "")
-        return [f"{pad}// READ: {_truncate(text, 60)}"]
+        m = re.search(r"\bREAD\s+([A-Z0-9-]+)", text, re.IGNORECASE)
+        fname = _safe_java_id(m.group(1)) if m else "file"
+        into_m = re.search(r"\bINTO\s+([A-Z0-9-]+)", text, re.IGNORECASE)
+        into = f", {_safe_java_id(into_m.group(1))}" if into_m else ""
+        return [
+            f"{pad}{fname}FileStatus = fileIO.read({fname}File{into});",
+            f"{pad}if (!\"00\".equals({fname}FileStatus)) {{ /* handle not-found/error */ }}",
+        ]
 
     if ir == "FileWrite":
         text = stmt.get("text", "")
-        return [f"{pad}// WRITE: {_truncate(text, 60)}"]
+        m = re.search(r"\bWRITE\s+([A-Z0-9-]+)", text, re.IGNORECASE)
+        fname = _safe_java_id(m.group(1)) if m else "record"
+        from_m = re.search(r"\bFROM\s+([A-Z0-9-]+)", text, re.IGNORECASE)
+        from_var = f", {_safe_java_id(from_m.group(1))}" if from_m else ""
+        return [f"{pad}{fname}FileStatus = fileIO.write({fname}File{from_var});"]
 
     if ir == "FileRewrite":
         text = stmt.get("text", "")
-        return [f"{pad}// REWRITE: {_truncate(text, 60)}"]
+        m = re.search(r"\bREWRITE\s+([A-Z0-9-]+)", text, re.IGNORECASE)
+        fname = _safe_java_id(m.group(1)) if m else "record"
+        from_m = re.search(r"\bFROM\s+([A-Z0-9-]+)", text, re.IGNORECASE)
+        from_var = f", {_safe_java_id(from_m.group(1))}" if from_m else ""
+        return [f"{pad}{fname}FileStatus = fileIO.rewrite({fname}File{from_var});"]
 
     if ir == "CicsReturn":
         return [f"{pad}return; // EXEC CICS RETURN"]
@@ -256,9 +266,85 @@ def _emit_stmt(stmt: dict, indent: int = 2) -> list[str]:
 
     if ir == "Initialize":
         text = stmt.get("text", "")
+        # Extract variable names after INITIALIZE
+        vars_m = re.findall(r"\bINITIALIZE\s+([A-Z0-9-]+(?:\s+[A-Z0-9-]+)*)", text, re.IGNORECASE)
+        if vars_m:
+            names = vars_m[0].split()
+            out = []
+            for v in names:
+                j = _safe_java_id(v)
+                out.append(f"{pad}{j} = ({j} instanceof BigDecimal) ? BigDecimal.ZERO : \"\";  // INITIALIZE {v}")
+            return out if out else [f"{pad}// INITIALIZE: {_truncate(text, 60)}"]
         return [f"{pad}// INITIALIZE: {_truncate(text, 60)}"]
 
     return [f"{pad}// {ir}: {_truncate(str(stmt), 60)}"]
+
+
+def _emit_arith(stmt: dict, pad: str) -> list[str]:
+    """Emit BigDecimal arithmetic for ADD/SUBTRACT/MULTIPLY/DIVIDE ArithOp nodes."""
+    op = (stmt.get("op") or stmt.get("kind") or "OP").upper()
+    operands = stmt.get("operands", [])
+    result = stmt.get("result", "")
+
+    if not result:
+        return [f"{pad}// {op}: (no result target parsed)"]
+
+    res = _safe_java_id(result)
+    ops = [_safe_java_id(o) for o in operands if o]
+
+    if op == "ADD":
+        if ops:
+            chain = " + ".join(ops)
+            return [f"{pad}{res} = {res}.add(new BigDecimal(\"{chain}\").setScale(2, RoundingMode.HALF_EVEN));"]
+        return [f"{pad}// ADD: operands not parsed"]
+    elif op == "SUBTRACT":
+        if ops:
+            chain = ".subtract(".join(f"new BigDecimal(\"{o}\")" for o in ops)
+            if len(ops) == 1:
+                return [f"{pad}{res} = {res}.subtract({_safe_java_id(ops[0])}.setScale(2, RoundingMode.HALF_EVEN));"]
+            return [f"{pad}{res} = {chain}.setScale(2, RoundingMode.HALF_EVEN);"]
+        return [f"{pad}// SUBTRACT: operands not parsed"]
+    elif op == "MULTIPLY":
+        if len(ops) >= 1:
+            return [f"{pad}{res} = {res}.multiply({_safe_java_id(ops[0])}).setScale(2, RoundingMode.HALF_EVEN);"]
+        return [f"{pad}// MULTIPLY: operands not parsed"]
+    elif op == "DIVIDE":
+        if len(ops) >= 1:
+            return [f"{pad}{res} = {res}.divide({_safe_java_id(ops[0])}, 2, RoundingMode.HALF_EVEN);"]
+        return [f"{pad}// DIVIDE: operands not parsed"]
+    else:
+        return [f"{pad}// {op}: {_truncate(str(stmt), 60)}"]
+
+
+def _emit_evaluate(text: str, pad: str) -> list[str]:
+    """Emit if/else chain from EVALUATE … WHEN … text."""
+    lines = []
+    # Extract WHEN clauses using simple regex
+    subject_m = re.search(r"EVALUATE\s+(.+?)(?=\s+WHEN\s+|\s*$)", text, re.IGNORECASE | re.DOTALL)
+    subject = _cobol_cond_to_java((subject_m.group(1) or "TRUE").strip()[:80]) if subject_m else "TRUE"
+    whens = re.findall(r"WHEN\s+(.+?)(?=WHEN|END-EVALUATE|$)", text, re.IGNORECASE | re.DOTALL)
+    if not whens:
+        lines.append(f"{pad}// EVALUATE {subject}: no WHEN clauses parsed")
+        return lines
+    first = True
+    for w in whens:
+        w = w.strip()
+        if not w:
+            continue
+        parts = w.split("\n", 1)
+        when_val = _cobol_cond_to_java(parts[0].strip()[:60])
+        kw = "if" if first else "} else if"
+        if when_val.upper() in ("OTHER", "ALSO OTHER"):
+            lines.append(f"{pad}}} else {{")
+            lines.append(f"{pad}    // WHEN OTHER")
+        elif first:
+            lines.append(f"{pad}if ({subject}.equals({when_val})) {{")
+        else:
+            lines.append(f"{pad}}} else if ({subject}.equals({when_val})) {{")
+            _ = kw  # used above
+        first = False
+    lines.append(f"{pad}}}")
+    return lines
 
 
 def _emit_expr(val: dict) -> str:

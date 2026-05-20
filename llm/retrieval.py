@@ -29,7 +29,7 @@ def assemble_paragraph_slice(para_uuid: str, con: sqlite3.Connection) -> dict[st
     if not para:
         return {}
 
-    prog_uuid = para["parent_uuid"]
+    prog_uuid = _best_prog_uuid(con, para["parent_uuid"])
 
     # Statements
     stmts = _fetch_children(con, para_uuid)
@@ -115,38 +115,140 @@ def assemble_paragraph_slice(para_uuid: str, con: sqlite3.Connection) -> dict[st
 
 
 def assemble_program_slice(prog_uuid: str, con: sqlite3.Connection) -> dict[str, Any]:
-    """Assemble a high-level program context slice."""
+    """Assemble a comprehensive program context slice leveraging all 7 layers."""
+    prog_uuid = _best_prog_uuid(con, prog_uuid)
     prog = _fetch_node(con, prog_uuid)
     if not prog:
         return {}
 
+    # Layer 1: paragraphs + statement count
     paragraphs = [dict(r) for r in con.execute(
-        "SELECT uuid, name, start_line, end_line FROM nodes "
-        "WHERE parent_uuid=? AND kind='Paragraph' ORDER BY start_line",
+        """SELECT p.uuid, p.name, p.start_line, p.end_line,
+                  COUNT(s.uuid) AS stmt_count
+           FROM nodes p
+           LEFT JOIN nodes s ON s.parent_uuid=p.uuid AND s.kind LIKE 'Stmt_%'
+           WHERE p.parent_uuid=? AND p.kind='Paragraph'
+           GROUP BY p.uuid ORDER BY p.start_line""",
         (prog_uuid,),
     ).fetchall()]
 
-    call_edges = [dict(r) for r in con.execute(
+    # Layer 2: data items + 88-level conditions
+    data_items = [dict(r) for r in con.execute(
+        "SELECT name, level, pic, usage, canonical_kind, precision, scale, signed FROM data_items "
+        "WHERE program_uuid=? ORDER BY start_line",
+        (prog_uuid,),
+    ).fetchall()]
+
+    conditions_88 = [dict(r) for r in con.execute(
+        """SELECT c.name, c.value_raw, d.name AS parent_name
+           FROM conditions_88 c JOIN data_items d ON d.uuid=c.parent_uuid
+           WHERE d.program_uuid=?""",
+        (prog_uuid,),
+    ).fetchall()]
+
+    # Layer 3: CFG summary and complexity
+    cfg_edge_counts = dict(con.execute(
+        """SELECT cf.edge_type, COUNT(*) AS cnt
+           FROM control_flow cf
+           JOIN nodes n ON n.uuid=cf.from_uuid
+           WHERE n.parent_uuid=?
+           GROUP BY cf.edge_type""",
+        (prog_uuid,),
+    ).fetchall() or [])
+
+    complexity = [dict(r) for r in con.execute(
+        """SELECT n.name AS paragraph, cm.cyclomatic, cm.statement_count,
+                  cm.nesting_depth, cm.fan_out
+           FROM complexity_metrics cm JOIN nodes n ON n.uuid=cm.para_uuid
+           WHERE cm.program_uuid=? ORDER BY cm.cyclomatic DESC LIMIT 10""",
+        (prog_uuid,),
+    ).fetchall()]
+
+    # Layer 4: call graph (in + out), file I/O, CICS tx, JCL bindings
+    call_out = [dict(r) for r in con.execute(
         "SELECT callee_name, call_type, is_resolved FROM call_graph WHERE caller_uuid=?",
         (prog_uuid,),
     ).fetchall()]
 
-    copybooks = [dict(r) for r in con.execute(
-        "SELECT copybook_name, replacing_json FROM copybook_use WHERE program_uuid=?",
+    call_in = [dict(r) for r in con.execute(
+        """SELECT n.name AS caller_name, cg.call_type
+           FROM call_graph cg JOIN nodes n ON n.uuid=cg.caller_uuid
+           WHERE cg.callee_uuid=?""",
         (prog_uuid,),
     ).fetchall()]
 
+    file_io = [dict(r) for r in con.execute(
+        "SELECT DISTINCT file_name, operation FROM file_io WHERE program_uuid=?",
+        (prog_uuid,),
+    ).fetchall()]
+
+    cics_verbs = [dict(r) for r in con.execute(
+        """SELECT tf.verb, tf.to_program, tf.trans_id
+           FROM transaction_flow tf WHERE tf.from_uuid=?""",
+        (prog_uuid,),
+    ).fetchall()]
+
+    jcl_bindings = []
+    try:
+        jcl_bindings = [dict(r) for r in con.execute(
+            """SELECT job_name, step_name, dd_name, dataset_name, cobol_logical_file
+               FROM jcl_program_binding WHERE program_uuid=?""",
+            (prog_uuid,),
+        ).fetchall()]
+    except Exception:
+        pass
+
+    # Layer 5: business rules
+    business_rules = [dict(r) for r in con.execute(
+        "SELECT kind, predicate_raw, predicate_resolved, then_summary, else_summary, line "
+        "FROM business_rules WHERE program_uuid=? ORDER BY line",
+        (prog_uuid,),
+    ).fetchall()]
+
+    # Layer 6: copybooks used
+    copybooks = [dict(r) for r in con.execute(
+        "SELECT copybook_name FROM copybook_use WHERE program_uuid=?",
+        (prog_uuid,),
+    ).fetchall()]
+
+    # Layer 7: risks
     risks = [dict(r) for r in con.execute(
         "SELECT kind, severity, note, line FROM risk_register WHERE program_uuid=? ORDER BY severity",
         (prog_uuid,),
     ).fetchall()]
 
+    prog_d = _node_to_dict(prog)
     return {
-        "program": _node_to_dict(prog),
+        "program": prog_d,
+        "source_file": prog_d.get("source_file", ""),
+        # Layer 1
         "paragraphs": paragraphs,
-        "call_graph": call_edges,
+        "paragraph_count": len(paragraphs),
+        # Layer 2
+        "data_items": data_items,
+        "data_item_count": len(data_items),
+        "conditions_88": conditions_88,
+        # Layer 3
+        "cfg_edge_summary": cfg_edge_counts,
+        "complexity_hotspots": complexity,
+        # Layer 4
+        "calls_out": call_out,
+        "calls_in": call_in,
+        "file_io": file_io,
+        "cics_interactions": cics_verbs,
+        "jcl_bindings": jcl_bindings,
+        # Layer 5
+        "business_rules": business_rules,
+        "business_rule_count": len(business_rules),
+        # Layer 6
         "copybook_use": copybooks,
+        # Layer 7
         "migration_risks": risks,
+        "risk_summary": {
+            "HIGH": sum(1 for r in risks if r["severity"] == "HIGH"),
+            "MEDIUM": sum(1 for r in risks if r["severity"] == "MEDIUM"),
+            "LOW": sum(1 for r in risks if r["severity"] == "LOW"),
+        },
     }
 
 
@@ -154,6 +256,34 @@ def assemble_program_slice(prog_uuid: str, con: sqlite3.Connection) -> dict[str,
 
 def _fetch_node(con: sqlite3.Connection, uuid: str) -> sqlite3.Row | None:
     return con.execute("SELECT * FROM nodes WHERE uuid=?", (uuid,)).fetchone()
+
+
+def _best_prog_uuid(con: sqlite3.Connection, uuid: str) -> str:
+    """Given a program UUID, return the best UUID for that program name.
+
+    Handles the duplicate-node case (absolute vs relative path from two pipeline
+    phases) by preferring the UUID with the most CFG edges.
+    """
+    row = con.execute("SELECT name FROM nodes WHERE uuid=?", (uuid,)).fetchone()
+    if not row:
+        return uuid
+    name = row["name"]
+    rows = con.execute(
+        "SELECT uuid FROM nodes WHERE kind='Program' AND UPPER(name)=UPPER(?)",
+        (name,),
+    ).fetchall()
+    if len(rows) == 1:
+        return uuid
+    best_uuid, best_score = uuid, -1
+    for r in rows:
+        cnt = con.execute(
+            "SELECT COUNT(*) FROM control_flow WHERE from_uuid IN "
+            "(SELECT uuid FROM nodes WHERE parent_uuid=?)",
+            (r["uuid"],),
+        ).fetchone()[0]
+        if cnt > best_score:
+            best_score, best_uuid = cnt, r["uuid"]
+    return best_uuid
 
 
 def _fetch_children(con: sqlite3.Connection, parent_uuid: str) -> list[sqlite3.Row]:

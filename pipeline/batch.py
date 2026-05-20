@@ -222,6 +222,7 @@ def _build_graph_layers(cbl_files: list[pathlib.Path]) -> None:
                 layer3_intra.persist(nodes, prog_name, con)
                 layer4_inter.persist_program(nodes, prog_name, con)
                 layer5_business.persist(nodes, prog_name, con)
+                layer7_quality.build_risk_register(nodes, con)
                 con.commit()
             except Exception as exc:
                 con.rollback()

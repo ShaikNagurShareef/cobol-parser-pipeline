@@ -210,7 +210,7 @@ function renderRubric(s: Partial<Stats>): void {
     { pct: 15, label: 'Forward Engineering (IR → Java, COUSR0xC)',  done: (s.programs ?? 0) > 0 },
     { pct: 10, label: 'Engineering Quality (tests, UUID stability)', done: true },
     { pct:  5, label: 'Performance (parallel batch, WAL SQLite)',    done: true },
-    { pct:  5, label: 'Migration Risk Register (severity-rated)',    done: (s.risks ?? 0) >= 0 },
+    { pct:  5, label: 'Migration Risk Register (severity-rated)',    done: (s.risks ?? 0) > 0 },
     { pct:  5, label: 'LangGraph Orchestration (bonus)',             done: true },
   ];
   const el = $<HTMLElement>('rubric-items');
@@ -284,6 +284,7 @@ async function openProgram(name: string): Promise<void> {
     renderBizRules(d.business_rules);
     renderFileIO(d.file_io);
     renderProgRisks(d.risks);
+    loadProgSource(name);
   } catch(e) {
     if (!isAbort(e)) console.warn(e);
   }
@@ -306,7 +307,7 @@ function switchTab(name: string): void {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   const panel = $<HTMLElement>(`tab-${name}`);
   if (panel) panel.style.display = '';
-  const order: Record<string, number> = { paragraphs: 0, dataitems: 1, callgraph: 2, bizrules: 3, fileio: 4, progrisk: 5 };
+  const order: Record<string, number> = { paragraphs: 0, dataitems: 1, callgraph: 2, bizrules: 3, fileio: 4, progrisk: 5, source: 6 };
   const tabEls = document.querySelectorAll('.tab');
   const idx = order[name];
   if (idx !== undefined && tabEls[idx]) tabEls[idx].classList.add('active');
@@ -374,6 +375,20 @@ function renderProgRisks(rows: any[]): void {
     <td style="font-size:12px;color:var(--muted);">${r.note ?? ''}</td>
     <td>${r.line ?? ''}</td></tr>`
   ).join('') || '<tr><td colspan="4" style="color:var(--muted);">No risks detected</td></tr>';
+}
+
+async function loadProgSource(name: string): Promise<void> {
+  const container = $<HTMLElement>('prog-source-container');
+  if (!container) return;
+  container.innerHTML = '<div style="color:var(--muted);text-align:center;padding:20px;">Loading source…</div>';
+  try {
+    const data = await apiFetch<{ content: string; line_count: number }>(`/programs/${encodeURIComponent(name)}/source`);
+    container.innerHTML = `
+      <div style="margin-bottom:8px;font-size:12px;color:var(--muted);">${data.line_count} lines</div>
+      <pre style="margin:0;"><code class="language-cobol" style="font-size:11px;line-height:1.5;">${escapeHtml(data.content)}</code></pre>`;
+    const el = container.querySelector('code');
+    if (el) hljs.highlightElement(el as HTMLElement);
+  } catch { /* ignore if no source */ }
 }
 
 // ── Diagrams ──────────────────────────────────────────────────────────────────
@@ -445,10 +460,10 @@ async function loadEmitDropdown(): Promise<void> {
 // ── Spec Generator ────────────────────────────────────────────────────────────
 async function loadCurrentModel(): Promise<void> {
   try {
-    const s = await apiFetch<{ provider: string; openai_model: string; gemini_model: string }>('/settings');
-    const model = s.provider === 'gemini' ? s.gemini_model : s.openai_model;
+    const s = await apiFetch<{ provider: string; llm_provider: string; openai_model: string; gemini_model: string }>('/settings');
+    const model = (s.provider === 'gemini' || s.llm_provider === 'gemini') ? s.gemini_model : s.openai_model;
     const el = $<HTMLElement>('spec-model-badge');
-    if (el) el.textContent = `${s.provider} / ${model}`;
+    if (el) el.textContent = `${s.llm_provider || s.provider} / ${model}`;
   } catch { /* ignore */ }
 }
 
@@ -889,12 +904,12 @@ function filterRiskTable(): void {
 async function loadSettings(): Promise<void> {
   try {
     const s = await apiFetch<{
-      provider: string; openai_model: string; gemini_model: string;
+      provider: string; llm_provider: string; openai_model: string; gemini_model: string;
       openai_key_set: boolean; gemini_key_set: boolean;
     }>('/settings');
 
     const provEl = $<HTMLSelectElement>('settings-provider');
-    if (provEl) provEl.value = s.provider;
+    if (provEl) provEl.value = s.llm_provider || s.provider;
 
     const curEl = $<HTMLElement>('settings-current-info');
     if (curEl) curEl.innerHTML = `
@@ -906,7 +921,8 @@ async function loadSettings(): Promise<void> {
         <div><span style="color:var(--muted);font-size:12px;">Gemini Key</span><br><span class="badge ${s.gemini_key_set ? 'badge-green' : 'badge-red'}">${s.gemini_key_set ? '✓ Set' : 'Not set'}</span></div>
       </div>`;
 
-    await loadModelsForProvider(s.provider, s.provider === 'gemini' ? s.gemini_model : s.openai_model);
+    const activeProvider = s.llm_provider || s.provider;
+    await loadModelsForProvider(activeProvider, activeProvider === 'gemini' ? s.gemini_model : s.openai_model);
   } catch(e) {
     if (!isAbort(e)) console.warn('Failed to load settings:', e);
   }
@@ -1000,6 +1016,7 @@ async function loadVizTab(tab: string, prog: string): Promise<void> {
   else if (tab === 'cfg') await loadCFG(prog);
   else if (tab === 'symbols') await loadSymbolTable(prog);
   else if (tab === 'complexity') await loadComplexity(prog);
+  else if (tab === 'source') await loadSourceCode(prog);
 }
 
 // AST Tree
@@ -1120,8 +1137,17 @@ async function loadSymbolTable(prog: string): Promise<void> {
 }
 
 function renderSymbolRow(r: any): string {
+  const indent = Math.max(0, (parseInt(r.level || '1') - 1) * 14);
+  const conds = (r.conditions_88 ?? []).map((c: any) =>
+    `<tr style="background:rgba(0,110,116,.04);">
+      <td style="padding-left:${indent + 28}px;font-size:11px;color:#4ade80;">88 ${c.name}</td>
+      <td><span class="badge badge-gray">88</span></td>
+      <td colspan="4" style="font-size:11px;color:var(--muted);">VALUE ${c.value_raw||''}</td>
+      <td></td><td></td>
+    </tr>`
+  ).join('');
   return `<tr>
-    <td style="font-weight:500;">${r.name ?? ''}</td>
+    <td style="font-weight:500;padding-left:${indent}px;">${r.name ?? ''}</td>
     <td><span class="badge badge-gray">${r.level ?? ''}</span></td>
     <td><code style="font-size:11px;color:var(--ust-sky);">${r.pic ?? ''}</code></td>
     <td>${r.usage ?? 'DISPLAY'}</td>
@@ -1129,7 +1155,7 @@ function renderSymbolRow(r: any): string {
     <td>${r.precision ?? ''}</td>
     <td>${r.scale ?? ''}</td>
     <td style="font-size:11px;color:var(--muted);">${r.scope ?? ''}</td>
-  </tr>`;
+  </tr>${conds}`;
 }
 
 function filterSymbolTable(q: string): void {
@@ -1197,6 +1223,44 @@ async function loadComplexity(prog: string): Promise<void> {
   } catch(e) {
     if (!isAbort(e)) container.innerHTML = `<div style="color:#f87171;padding:20px;">Error: ${(e as Error).message}</div>`;
   }
+}
+
+// Source Code Viewer
+async function loadSourceCode(prog: string): Promise<void> {
+  const container = $<HTMLElement>('source-container');
+  if (!container) return;
+  container.innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px;">Loading source…</div>';
+  try {
+    const data = await apiFetch<{ content: string; line_count: number; source_file: string }>(
+      `/programs/${encodeURIComponent(prog)}/source`
+    );
+    if (!data.content) {
+      container.innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px;">Source file not found.</div>';
+      return;
+    }
+    container.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+        <div>
+          <span style="font-weight:600;font-size:14px;">${prog}.cbl</span>
+          <span style="font-size:12px;color:var(--muted);margin-left:12px;">${data.line_count} lines · ${data.source_file.split('/').slice(-3).join('/')}</span>
+        </div>
+        <button class="btn btn-secondary" style="font-size:12px;padding:5px 10px;"
+          onclick="navigator.clipboard.writeText(document.getElementById('source-code-pre')?.textContent||'').then(()=>showToast('Copied!'))">
+          Copy source
+        </button>
+      </div>
+      <pre id="source-code-pre" style="max-height:580px;overflow:auto;border-radius:8px;margin:0;">
+        <code class="language-cobol" style="font-size:11.5px;line-height:1.6;">${escapeHtml(data.content)}</code>
+      </pre>`;
+    const codeEl = container.querySelector('code');
+    if (codeEl) hljs.highlightElement(codeEl as HTMLElement);
+  } catch(e) {
+    if (!isAbort(e)) container.innerHTML = `<div style="color:#f87171;padding:20px;">Error: ${(e as Error).message}</div>`;
+  }
+}
+
+function escapeHtml(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 // ── Layer Explorer ────────────────────────────────────────────────────────────
@@ -1292,6 +1356,187 @@ function scrollToLayer(id: string): void {
   if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
+// ── Layer Explorer Drill-Down ─────────────────────────────────────────────────
+
+let _lxActiveLayer = 0;
+let _lxActiveProgram = '';
+
+async function lxBrowse(layer: number, filter: string = ''): Promise<void> {
+  _lxActiveLayer = layer;
+  const panel = $<HTMLElement>('lx-drilldown-panel');
+  const title = $<HTMLElement>('lx-drilldown-title');
+  const body  = $<HTMLElement>('lx-drilldown-body');
+  if (!panel || !title || !body) return;
+  panel.style.display = '';
+  body.innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px;">Loading…</div>';
+
+  const layerTitles: Record<number, string> = {
+    1: 'Layer 1 — Programs & Paragraphs',
+    2: 'Layer 2 — Data Items',
+    3: 'Layer 3 — CFG Edges',
+    4: 'Layer 4 — Call Graph',
+    5: 'Layer 5 — Business Rules',
+    6: 'Layer 6 — BMS Maps',
+    7: 'Layer 7 — Risk Register',
+  };
+  if (title) title.textContent = layerTitles[layer] ?? `Layer ${layer}`;
+
+  try {
+    switch (layer) {
+      case 1: {
+        const rows = await apiFetch<any[]>('/layers/1/programs?limit=200');
+        body.innerHTML = `
+          <div style="overflow:auto;max-height:500px;">
+            <table><thead><tr><th>Program</th><th>Source File</th><th>Paragraphs</th><th>Statements</th><th></th></tr></thead>
+            <tbody>${(rows ?? []).map(r => `
+              <tr>
+                <td style="font-weight:600;color:#5ecdd1;">${r.name}</td>
+                <td style="font-size:11px;color:var(--muted);">${(r.source_file||'').split('/').pop()}</td>
+                <td><span class="badge badge-sky">${r.para_count ?? 0}</span></td>
+                <td>${r.stmt_count ?? 0}</td>
+                <td><button class="btn btn-secondary" style="font-size:11px;padding:3px 8px;"
+                    onclick="navigate('visualizations');setTimeout(()=>{const s=document.getElementById('viz-program');if(s)s.value='${r.name}';switchVizTab('source');loadSourceCode('${r.name}');},200)">
+                  View Source</button></td>
+              </tr>`).join('')}
+            </tbody></table>
+          </div>`;
+        break;
+      }
+      case 2: {
+        const progParam = _lxActiveProgram ? `?program=${encodeURIComponent(_lxActiveProgram)}&limit=200` : '?limit=200';
+        const rows = await apiFetch<any[]>(`/layers/2/data-items${progParam}`);
+        body.innerHTML = `
+          <div style="overflow:auto;max-height:500px;">
+            <table><thead><tr><th>Name</th><th>Level</th><th>PIC</th><th>Type</th><th>Precision</th><th>Program</th></tr></thead>
+            <tbody>${(rows ?? []).map(r => `
+              <tr>
+                <td style="font-weight:500;padding-left:${Math.max(0,(parseInt(r.level||0)-1)*8)}px">${r.name}</td>
+                <td><span class="badge badge-gray">${r.level}</span></td>
+                <td><code style="font-size:11px;color:var(--ust-sky);">${r.pic||''}</code></td>
+                <td><span class="badge ${r.canonical_kind==='decimal'?'badge-orange':r.canonical_kind==='alpha'?'badge-sky':'badge-gray'}">${r.canonical_kind||''}</span></td>
+                <td>${r.precision||''}</td>
+                <td style="font-size:11px;color:var(--muted);">${r.program_name||''}</td>
+              </tr>`).join('')}
+            </tbody></table>
+          </div>`;
+        break;
+      }
+      case 3: {
+        const progParam = _lxActiveProgram ? `?program=${encodeURIComponent(_lxActiveProgram)}&limit=300` : '?limit=300';
+        const rows = await apiFetch<any[]>(`/layers/3/cfg-edges${progParam}`);
+        const typeCounts: Record<string,number> = {};
+        (rows ?? []).forEach(r => { typeCounts[r.edge_type] = (typeCounts[r.edge_type]||0) + 1; });
+        body.innerHTML = `
+          <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
+            ${Object.entries(typeCounts).map(([t,c]) => `<span class="badge badge-sky">${t} <strong>${c}</strong></span>`).join('')}
+          </div>
+          <div style="overflow:auto;max-height:460px;">
+            <table><thead><tr><th>From Paragraph</th><th>Edge Type</th><th>To Paragraph</th><th>Program</th></tr></thead>
+            <tbody>${(rows ?? []).map(r => `
+              <tr>
+                <td style="font-weight:500;color:var(--ust-sky);">${r.from_para}</td>
+                <td><span class="badge ${r.edge_type?.includes('BRANCH')?'badge-green':r.edge_type==='PERFORM'?'badge-sky':r.edge_type==='FALLTHROUGH'?'badge-gray':'badge-amber'}">${r.edge_type}</span></td>
+                <td style="font-weight:500;color:var(--ust-sky);">${r.to_para}</td>
+                <td style="font-size:11px;color:var(--muted);">${r.program_name}</td>
+              </tr>`).join('')}
+            </tbody></table>
+          </div>`;
+        break;
+      }
+      case 4: {
+        const rows = await apiFetch<any[]>('/layers/4/call-graph?limit=200');
+        body.innerHTML = `
+          <div style="overflow:auto;max-height:500px;">
+            <table><thead><tr><th>Caller</th><th>Callee</th><th>Type</th><th>Resolved</th></tr></thead>
+            <tbody>${(rows ?? []).map(r => `
+              <tr>
+                <td style="font-weight:500;color:var(--ust-sky);">${r.caller_name}</td>
+                <td style="font-weight:500;">${r.callee_name}</td>
+                <td><span class="badge badge-sky">${r.call_type}</span></td>
+                <td>${r.is_resolved ? '<span class="badge badge-green">✓ resolved</span>' : '<span class="badge badge-amber">unresolved</span>'}</td>
+              </tr>`).join('')}
+            </tbody></table>
+          </div>`;
+        break;
+      }
+      case 5: {
+        const progParam = _lxActiveProgram ? `?program=${encodeURIComponent(_lxActiveProgram)}&limit=200` : '?limit=200';
+        const rows = await apiFetch<any[]>(`/layers/5/business-rules${progParam}`);
+        body.innerHTML = `
+          <div style="overflow:auto;max-height:500px;">
+            <table><thead><tr><th>Program</th><th>Line</th><th>Kind</th><th>Predicate</th><th>Then</th><th>Else</th></tr></thead>
+            <tbody>${(rows ?? []).map(r => `
+              <tr>
+                <td style="font-size:11px;color:var(--muted);">${r.program_name}</td>
+                <td>${r.line||''}</td>
+                <td><span class="badge badge-orange">${r.kind}</span></td>
+                <td style="font-size:11px;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${(r.predicate_raw||'').replace(/"/g,'&quot;')}">${(r.predicate_raw||'').slice(0,60)}</td>
+                <td style="font-size:11px;color:var(--muted);max-width:150px;overflow:hidden;text-overflow:ellipsis;">${(r.then_summary||'').slice(0,40)}</td>
+                <td style="font-size:11px;color:var(--muted);max-width:150px;overflow:hidden;text-overflow:ellipsis;">${(r.else_summary||'').slice(0,40)}</td>
+              </tr>`).join('')}
+            </tbody></table>
+          </div>`;
+        break;
+      }
+      case 6: {
+        const maps = await apiFetch<any[]>('/layers/6/bms-maps?limit=200');
+        const csd  = await apiFetch<any[]>('/layers/6/csd?limit=100');
+        body.innerHTML = `
+          <div style="font-weight:600;margin-bottom:8px;font-size:13px;">BMS Screen Maps (${maps.length} fields)</div>
+          <div style="overflow:auto;max-height:280px;margin-bottom:16px;">
+            <table><thead><tr><th>Map</th><th>Mapset</th><th>Field</th><th>Row</th><th>Col</th><th>Length</th><th>Attrs</th></tr></thead>
+            <tbody>${(maps ?? []).map(r => `
+              <tr>
+                <td style="font-weight:500;color:var(--ust-sky);">${r.map_name}</td>
+                <td style="font-size:11px;color:var(--muted);">${r.mapset_name}</td>
+                <td>${r.field_name}</td>
+                <td>${r.position_row}</td><td>${r.position_col}</td><td>${r.length}</td>
+                <td style="font-size:11px;color:var(--muted);">${r.attributes||''}</td>
+              </tr>`).join('')}
+            </tbody></table>
+          </div>
+          <div style="font-weight:600;margin-bottom:8px;font-size:13px;">CSD Catalog (${csd.length} entries)</div>
+          <div style="overflow:auto;max-height:200px;">
+            <table><thead><tr><th>Name</th><th>Type</th><th>Program</th><th>Transaction</th></tr></thead>
+            <tbody>${(csd ?? []).map(r => `
+              <tr>
+                <td style="font-weight:500;">${r.name||''}</td>
+                <td><span class="badge badge-sky">${r.resource_type||''}</span></td>
+                <td style="font-size:11px;">${r.program_name||''}</td>
+                <td style="font-size:11px;">${r.transaction_id||''}</td>
+              </tr>`).join('')}
+            </tbody></table>
+          </div>`;
+        break;
+      }
+      case 7: {
+        const rows = await apiFetch<any[]>('/layers/7/risks?limit=500');
+        body.innerHTML = `
+          <div style="overflow:auto;max-height:500px;">
+            <table><thead><tr><th>Program</th><th>Kind</th><th>Severity</th><th>Note</th><th>Line</th></tr></thead>
+            <tbody>${(rows ?? []).map(r => `
+              <tr>
+                <td style="font-weight:500;color:var(--ust-sky);">${r.program_name||'—'}</td>
+                <td><span class="badge badge-orange">${r.kind}</span></td>
+                <td><span class="sev-${r.severity}" style="font-weight:700;">${r.severity}</span></td>
+                <td style="font-size:11px;color:var(--muted);">${r.note||''}</td>
+                <td>${r.line||''}</td>
+              </tr>`).join('')}
+            </tbody></table>
+          </div>`;
+        break;
+      }
+    }
+  } catch(e) {
+    if (!isAbort(e)) body.innerHTML = `<div style="color:#f87171;padding:20px;">Error: ${(e as Error).message}</div>`;
+  }
+}
+
+function lxClose(): void {
+  const panel = $<HTMLElement>('lx-drilldown-panel');
+  if (panel) panel.style.display = 'none';
+}
+
 // ── Expose to window for onclick handlers ─────────────────────────────────────
 Object.assign(window as any, {
   navigate,
@@ -1329,6 +1574,9 @@ Object.assign(window as any, {
   saveSettings,
   loadLayersPage,
   scrollToLayer,
+  loadSourceCode,
+  lxBrowse,
+  lxClose,
 });
 
 // ── Init ──────────────────────────────────────────────────────────────────────

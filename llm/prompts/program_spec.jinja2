@@ -5,27 +5,87 @@ grounded in the provided artifact UUIDs or program names.
 ## Program
 - Name: {{ program.name }}
 - UUID: {{ program.uuid }}
-- Source: {{ program.source_file }}
+- Source: {{ source_file }}
+- Paragraphs: {{ paragraph_count }}  |  Data Items: {{ data_item_count }}  |  Business Rules: {{ business_rule_count }}
 
-## Paragraphs ({{ paragraphs|length }} total)
+## Paragraphs ({{ paragraph_count }} total)
 {% for p in paragraphs %}
-- [{{ p.uuid[:8] }}] {{ p.name }} (line {{ p.start_line }}–{{ p.end_line }})
+- [{{ p.uuid[:8] }}] {{ p.name }} (lines {{ p.start_line }}–{{ p.end_line }}, {{ p.stmt_count }} stmts)
 {% endfor %}
 
-## Call Graph (external calls)
-{% for c in call_graph %}
+## Key Data Items
+{% for item in data_items[:40] %}
+- L{{ item.level }} {{ item.name }}{% if item.pic %} PIC={{ item.pic }}{% endif %}{% if item.usage %} USAGE={{ item.usage }}{% endif %}{% if item.canonical_kind %} TYPE={{ item.canonical_kind }}{% endif %}{% if item.precision %} prec={{ item.precision }} scale={{ item.scale }}{% endif %}
+{% endfor %}
+{% if data_items|length > 40 %}({{ data_items|length - 40 }} more items omitted){% endif %}
+
+## 88-Level Conditions (boolean aliases)
+{% for c in conditions_88 %}
+- {{ c.name }}: parent={{ c.parent_name }} VALUE={{ c.value_raw }}
+{% endfor %}
+{% if not conditions_88 %}(none found){% endif %}
+
+## Complexity Hotspots (top paragraphs by cyclomatic complexity)
+{% for cm in complexity_hotspots %}
+- {{ cm.paragraph }}: cyclomatic={{ cm.cyclomatic }}, stmts={{ cm.statement_count }}, nesting={{ cm.nesting_depth }}, fan_out={{ cm.fan_out }}
+{% endfor %}
+{% if not complexity_hotspots %}(no complexity data){% endif %}
+
+## CFG Edge Summary
+{% for edge_type, count in cfg_edge_summary.items() %}
+- {{ edge_type }}: {{ count }} edges
+{% endfor %}
+{% if not cfg_edge_summary %}(no CFG edges){% endif %}
+
+## Outbound Calls (this program calls)
+{% for c in calls_out %}
 - {{ c.call_type }}: {{ c.callee_name }}{% if c.is_resolved %} (resolved){% else %} (unresolved){% endif %}
 {% endfor %}
+{% if not calls_out %}(no outbound calls){% endif %}
+
+## Inbound Calls (callers of this program)
+{% for c in calls_in %}
+- {{ c.caller_name }} via {{ c.call_type }}
+{% endfor %}
+{% if not calls_in %}(no known callers){% endif %}
+
+## CICS Interactions
+{% for cics in cics_interactions %}
+- {{ cics.verb }}{% if cics.to_program %} → {{ cics.to_program }}{% endif %}{% if cics.trans_id %} (TRANSID={{ cics.trans_id }}){% endif %}
+{% endfor %}
+{% if not cics_interactions %}(no CICS interactions){% endif %}
+
+## File I/O
+{% for fio in file_io %}
+- {{ fio.operation }} on {{ fio.file_name }}
+{% endfor %}
+{% if not file_io %}(no file I/O){% endif %}
+
+## JCL Dataset Bindings
+{% for jb in jcl_bindings %}
+- Job={{ jb.job_name }} Step={{ jb.step_name }} DD={{ jb.dd_name }} DSN={{ jb.dataset_name }} → COBOL={{ jb.cobol_logical_file }}
+{% endfor %}
+{% if not jcl_bindings %}(no JCL bindings found){% endif %}
+
+## Business Rules (IF/EVALUATE predicates)
+{% for br in business_rules %}
+- [{{ br.kind }}] {{ br.predicate_raw }}
+  THEN: {{ br.then_summary }}{% if br.else_summary %}  ELSE: {{ br.else_summary }}{% endif %}
+{% endfor %}
+{% if not business_rules %}(no business rules extracted){% endif %}
 
 ## Copybook Dependencies
 {% for cb in copybook_use %}
-- {{ cb.copybook_name }}{% if cb.replacing_json and cb.replacing_json != '[]' %} REPLACING {{ cb.replacing_json }}{% endif %}
+- {{ cb.copybook_name }}
 {% endfor %}
+{% if not copybook_use %}(no copybooks){% endif %}
 
-## Migration Risks
+## Migration Risk Summary
+- HIGH: {{ risk_summary.HIGH }}  |  MEDIUM: {{ risk_summary.MEDIUM }}  |  LOW: {{ risk_summary.LOW }}
 {% for r in migration_risks %}
 - [{{ r.severity }}] {{ r.kind }}: {{ r.note }} (line {{ r.line }})
 {% endfor %}
+{% if not migration_risks %}(no risks identified){% endif %}
 
 ---
 
@@ -34,10 +94,12 @@ Structure your response as:
 
 1. **Program Purpose** (2–3 sentences describing business function)
 2. **Main Processing Flow** (ordered list of paragraphs and their roles, citing UUIDs)
-3. **External Dependencies** (programs called, copybooks used — cite names)
-4. **Data Managed** (key data categories: files, DB tables, working-storage groups)
-5. **Migration Risks** (each risk with severity and recommended mitigation)
-6. **Recommended Bounded Context** (which Java microservice/module should own this program)
+3. **Data Architecture** (key data groups, 88-level flags, PIC types in use)
+4. **Business Logic** (core rules and conditional logic extracted from IF/EVALUATE)
+5. **External Dependencies** (callers, callees, CICS interactions, JCL dataset bindings)
+6. **Complexity Assessment** (cyclomatic hotspots, nesting depth, fan-out concerns)
+7. **Migration Risks** (each risk with severity and recommended mitigation)
+8. **Recommended Bounded Context** (which Java microservice/module should own this program)
 
 Ground every claim in the artifact data above.
 Do NOT invent information not present in the artifacts.

@@ -61,6 +61,36 @@ def _db_exists() -> bool:
     return DEFAULT_DB.exists() and DEFAULT_DB.stat().st_size > 0
 
 
+def _get_prog_uuid(con, program_name: str) -> str | None:
+    """Return the best program UUID for the given name.
+
+    When duplicate nodes exist (absolute vs relative path from two pipeline
+    phases), prefer the one that has the most associated graph data (CFG edges).
+    """
+    rows = con.execute(
+        "SELECT uuid FROM nodes WHERE kind='Program' AND UPPER(name)=UPPER(?)",
+        (program_name,),
+    ).fetchall()
+    if not rows:
+        return None
+    if len(rows) == 1:
+        return rows[0]["uuid"]
+    # Multiple rows: prefer the one with the most graph data
+    best_uuid = rows[0]["uuid"]
+    best_score = -1
+    for row in rows:
+        uuid = row["uuid"]
+        cfg_count = con.execute(
+            "SELECT COUNT(*) FROM control_flow WHERE from_uuid IN "
+            "(SELECT uuid FROM nodes WHERE parent_uuid=?)",
+            (uuid,),
+        ).fetchone()[0]
+        if cfg_count > best_score:
+            best_score = cfg_count
+            best_uuid = uuid
+    return best_uuid
+
+
 # ── Settings & Model selection ─────────────────────────────────────────────────
 
 @app.get("/settings", tags=["Settings"])
@@ -257,12 +287,10 @@ def get_program(program_name: str):
     if not _db_exists():
         raise HTTPException(503, "Pipeline not yet run")
     with _con() as con:
-        row = con.execute(
-            "SELECT * FROM nodes WHERE kind='Program' AND UPPER(name)=UPPER(?)",
-            (program_name,),
-        ).fetchone()
-    if not row:
-        raise HTTPException(404, f"Program '{program_name}' not found")
+        uuid = _get_prog_uuid(con, program_name)
+        if not uuid:
+            raise HTTPException(404, f"Program '{program_name}' not found")
+        row = con.execute("SELECT * FROM nodes WHERE uuid=?", (uuid,)).fetchone()
     d = _row_to_dict(row)
     d["payload"] = json.loads(d.get("payload_json") or "{}")
     return d
@@ -273,13 +301,10 @@ def get_program_detail(program_name: str):
     if not _db_exists():
         raise HTTPException(503, "Pipeline not yet run")
     with _con() as con:
-        prog = con.execute(
-            "SELECT * FROM nodes WHERE kind='Program' AND UPPER(name)=UPPER(?)",
-            (program_name,),
-        ).fetchone()
-        if not prog:
+        uuid = _get_prog_uuid(con, program_name)
+        if not uuid:
             raise HTTPException(404, f"Program '{program_name}' not found")
-        uuid = prog["uuid"]
+        prog = con.execute("SELECT * FROM nodes WHERE uuid=?", (uuid,)).fetchone()
 
         paragraphs = _rows_to_list(con.execute(
             "SELECT uuid, name, start_line, end_line FROM nodes "
@@ -379,13 +404,9 @@ def get_program_cfg(program_name: str):
     if not _db_exists():
         raise HTTPException(503, "Pipeline not yet run")
     with _con() as con:
-        prog = con.execute(
-            "SELECT uuid FROM nodes WHERE kind='Program' AND UPPER(name)=UPPER(?)",
-            (program_name,),
-        ).fetchone()
-        if not prog:
+        prog_uuid = _get_prog_uuid(con, program_name)
+        if not prog_uuid:
             raise HTTPException(404, f"Program '{program_name}' not found")
-        prog_uuid = prog["uuid"]
 
         paras = _rows_to_list(con.execute(
             "SELECT uuid, name, start_line FROM nodes WHERE parent_uuid=? AND kind='Paragraph' ORDER BY start_line",
@@ -402,14 +423,23 @@ def get_program_cfg(program_name: str):
                 para_uuids,
             ).fetchall())
 
+    def _safe_id(name: str) -> str:
+        """Convert paragraph name to a valid Mermaid node ID."""
+        import re as _re
+        safe = _re.sub(r"[^A-Za-z0-9_]", "_", name or "UNKNOWN")
+        if safe and safe[0].isdigit():
+            safe = "P_" + safe
+        return safe
+
     # Build Mermaid flowchart
     lines = ["flowchart TD"]
     for p in paras:
-        safe_name = (p["name"] or p["uuid"][:8]).replace("-", "_")
-        lines.append(f'  {safe_name}["{p["name"] or p["uuid"][:8]}\\nL{p["start_line"]}"]')
+        safe_name = _safe_id(p["name"] or p["uuid"][:8])
+        display = p["name"] or p["uuid"][:8]
+        lines.append(f'  {safe_name}["{display} L{p["start_line"]}"]')
     for e in edges:
-        frm = para_map.get(e["from_uuid"], e["from_uuid"][:8]).replace("-", "_")
-        to = para_map.get(e["to_uuid"], e["to_uuid"][:8]).replace("-", "_")
+        frm = _safe_id(para_map.get(e["from_uuid"], e["from_uuid"][:8]))
+        to = _safe_id(para_map.get(e["to_uuid"], e["to_uuid"][:8]))
         label = e["edge_type"] or ""
         lines.append(f'  {frm} -->|"{label}"| {to}')
 
@@ -428,11 +458,8 @@ def get_symbol_table(program_name: str, search: str = Query("", description="Fil
     if not _db_exists():
         raise HTTPException(503, "Pipeline not yet run")
     with _con() as con:
-        prog = con.execute(
-            "SELECT uuid FROM nodes WHERE kind='Program' AND UPPER(name)=UPPER(?)",
-            (program_name,),
-        ).fetchone()
-        if not prog:
+        prog_uuid = _get_prog_uuid(con, program_name)
+        if not prog_uuid:
             raise HTTPException(404, f"Program '{program_name}' not found")
 
         like = f"%{search.upper()}%" if search else "%"
@@ -448,7 +475,7 @@ def get_symbol_table(program_name: str, search: str = Query("", description="Fil
             WHERE d.program_uuid=? AND UPPER(d.name) LIKE ?
             ORDER BY d.start_line, d.level
             """,
-            (prog["uuid"], like),
+            (prog_uuid, like),
         ).fetchall())
 
         # Fetch 88-level conditions grouped by parent
@@ -459,7 +486,7 @@ def get_symbol_table(program_name: str, search: str = Query("", description="Fil
             JOIN data_items d ON d.uuid = c.parent_uuid
             WHERE d.program_uuid=?
             """,
-            (prog["uuid"],),
+            (prog_uuid,),
         ).fetchall())
 
     cond_by_parent: dict[str, list] = {}
@@ -478,11 +505,8 @@ def get_complexity(program_name: str):
     if not _db_exists():
         raise HTTPException(503, "Pipeline not yet run")
     with _con() as con:
-        prog = con.execute(
-            "SELECT uuid FROM nodes WHERE kind='Program' AND UPPER(name)=UPPER(?)",
-            (program_name,),
-        ).fetchone()
-        if not prog:
+        prog_uuid = _get_prog_uuid(con, program_name)
+        if not prog_uuid:
             raise HTTPException(404, f"Program '{program_name}' not found")
         rows = _rows_to_list(con.execute(
             """
@@ -494,7 +518,7 @@ def get_complexity(program_name: str):
             WHERE cm.program_uuid=?
             ORDER BY cm.cyclomatic DESC
             """,
-            (prog["uuid"],),
+            (prog_uuid,),
         ).fetchall())
     return {"program": program_name, "paragraphs": rows}
 
@@ -997,6 +1021,245 @@ def health():
         "db_ready": db_ready,
         "pipeline_running": pipeline_running,
     }
+
+
+# ── Source code viewer ────────────────────────────────────────────────────────
+
+@app.get("/programs/{program_name}/source", tags=["Programs"])
+def get_program_source(program_name: str):
+    """Return the raw COBOL source code for a program."""
+    if not _db_exists():
+        raise HTTPException(503, "Pipeline not yet run")
+    with _con() as con:
+        row = con.execute(
+            "SELECT source_file FROM nodes WHERE kind='Program' AND UPPER(name)=UPPER(?)",
+            (program_name,),
+        ).fetchone()
+    if not row:
+        raise HTTPException(404, f"Program '{program_name}' not found")
+    source_file = pathlib.Path(row["source_file"])
+    if not source_file.exists():
+        # Try relative to project root
+        source_file = PROJECT_ROOT / row["source_file"]
+    if not source_file.exists():
+        raise HTTPException(404, f"Source file not found: {row['source_file']}")
+    try:
+        content = source_file.read_text(errors="replace")
+        lines = content.splitlines()
+        return {
+            "program": program_name,
+            "source_file": str(source_file),
+            "content": content,
+            "line_count": len(lines),
+        }
+    except Exception as exc:
+        raise HTTPException(500, str(exc))
+
+
+# ── Layer drill-down endpoints ────────────────────────────────────────────────
+
+@app.get("/layers/1/programs", tags=["Layer Explorer"])
+def layer1_programs(limit: int = Query(50)):
+    """Layer 1: List programs with paragraph and statement counts."""
+    if not _db_exists():
+        return []
+    with _con() as con:
+        rows = con.execute(
+            """SELECT n.name, n.source_file, n.start_line, n.end_line,
+                      COUNT(DISTINCT p.uuid) AS para_count,
+                      COUNT(DISTINCT s.uuid) AS stmt_count
+               FROM nodes n
+               LEFT JOIN nodes p ON p.parent_uuid=n.uuid AND p.kind='Paragraph'
+               LEFT JOIN nodes s ON s.parent_uuid=p.uuid AND s.kind LIKE 'Stmt_%'
+               WHERE n.kind='Program'
+               GROUP BY n.uuid ORDER BY n.name LIMIT ?""",
+            (limit,),
+        ).fetchall()
+    return _rows_to_list(rows)
+
+
+@app.get("/layers/2/data-items", tags=["Layer Explorer"])
+def layer2_data_items(limit: int = Query(100), program: str = Query("")):
+    """Layer 2: Browse data items and 88-level conditions."""
+    if not _db_exists():
+        return []
+    with _con() as con:
+        if program:
+            prog_uuid = _get_prog_uuid(con, program)
+            if not prog_uuid:
+                return []
+            rows = con.execute(
+                """SELECT d.name, d.level, d.pic, d.usage, d.canonical_kind,
+                          d.precision, d.scale, n.name AS program_name
+                   FROM data_items d JOIN nodes n ON n.uuid=d.program_uuid
+                   WHERE d.program_uuid=? ORDER BY d.start_line LIMIT ?""",
+                (prog_uuid, limit),
+            ).fetchall()
+        else:
+            rows = con.execute(
+                """SELECT d.name, d.level, d.pic, d.usage, d.canonical_kind,
+                          d.precision, d.scale, n.name AS program_name
+                   FROM data_items d JOIN nodes n ON n.uuid=d.program_uuid
+                   ORDER BY n.name, d.start_line LIMIT ?""",
+                (limit,),
+            ).fetchall()
+    return _rows_to_list(rows)
+
+
+@app.get("/layers/3/cfg-edges", tags=["Layer Explorer"])
+def layer3_cfg_edges(limit: int = Query(100), program: str = Query("")):
+    """Layer 3: Browse CFG edges with paragraph names."""
+    if not _db_exists():
+        return []
+    with _con() as con:
+        if program:
+            prog_uuid = _get_prog_uuid(con, program)
+            if not prog_uuid:
+                return []
+            para_uuids = [r["uuid"] for r in con.execute(
+                "SELECT uuid FROM nodes WHERE parent_uuid=? AND kind='Paragraph'",
+                (prog_uuid,)
+            ).fetchall()]
+            if not para_uuids:
+                return []
+            ph = ",".join("?" * len(para_uuids))
+            rows = con.execute(
+                f"""SELECT cf.edge_type, n1.name AS from_para, n2.name AS to_para,
+                           prog.name AS program_name
+                    FROM control_flow cf
+                    JOIN nodes n1 ON n1.uuid=cf.from_uuid
+                    JOIN nodes n2 ON n2.uuid=cf.to_uuid
+                    JOIN nodes prog ON prog.uuid=n1.parent_uuid
+                    WHERE cf.from_uuid IN ({ph})
+                    ORDER BY n1.name, cf.edge_type LIMIT ?""",
+                para_uuids + [limit],
+            ).fetchall()
+        else:
+            rows = con.execute(
+                """SELECT cf.edge_type, n1.name AS from_para, n2.name AS to_para,
+                          prog.name AS program_name
+                   FROM control_flow cf
+                   JOIN nodes n1 ON n1.uuid=cf.from_uuid
+                   JOIN nodes n2 ON n2.uuid=cf.to_uuid
+                   JOIN nodes prog ON prog.uuid=n1.parent_uuid
+                   ORDER BY prog.name, n1.name LIMIT ?""",
+                (limit,),
+            ).fetchall()
+    return _rows_to_list(rows)
+
+
+@app.get("/layers/4/call-graph", tags=["Layer Explorer"])
+def layer4_call_graph(limit: int = Query(100)):
+    """Layer 4: Browse call graph edges."""
+    if not _db_exists():
+        return []
+    with _con() as con:
+        rows = con.execute(
+            """SELECT cg.callee_name, cg.call_type, cg.is_resolved,
+                      n1.name AS caller_name
+               FROM call_graph cg JOIN nodes n1 ON n1.uuid=cg.caller_uuid
+               ORDER BY n1.name, cg.callee_name LIMIT ?""",
+            (limit,),
+        ).fetchall()
+    return _rows_to_list(rows)
+
+
+@app.get("/layers/5/business-rules", tags=["Layer Explorer"])
+def layer5_business_rules(limit: int = Query(100), program: str = Query("")):
+    """Layer 5: Browse business rules."""
+    if not _db_exists():
+        return []
+    with _con() as con:
+        if program:
+            prog_uuid = _get_prog_uuid(con, program)
+            if not prog_uuid:
+                return []
+            rows = con.execute(
+                """SELECT br.kind, br.predicate_raw, br.predicate_resolved,
+                          br.then_summary, br.else_summary, br.line,
+                          n.name AS program_name
+                   FROM business_rules br JOIN nodes n ON n.uuid=br.program_uuid
+                   WHERE br.program_uuid=? ORDER BY br.line LIMIT ?""",
+                (prog_uuid, limit),
+            ).fetchall()
+        else:
+            rows = con.execute(
+                """SELECT br.kind, br.predicate_raw, br.predicate_resolved,
+                          br.then_summary, br.else_summary, br.line,
+                          n.name AS program_name
+                   FROM business_rules br JOIN nodes n ON n.uuid=br.program_uuid
+                   ORDER BY n.name, br.line LIMIT ?""",
+                (limit,),
+            ).fetchall()
+    return _rows_to_list(rows)
+
+
+@app.get("/layers/6/bms-maps", tags=["Layer Explorer"])
+def layer6_bms_maps(limit: int = Query(100)):
+    """Layer 6: Browse BMS screen maps and fields."""
+    if not _db_exists():
+        return []
+    with _con() as con:
+        rows = con.execute(
+            """SELECT map_name, mapset_name, field_name, position_row, position_col,
+                      length, attributes
+               FROM screen_map ORDER BY map_name, position_row, position_col LIMIT ?""",
+            (limit,),
+        ).fetchall()
+    return _rows_to_list(rows)
+
+
+@app.get("/layers/6/csd", tags=["Layer Explorer"])
+def layer6_csd(limit: int = Query(100)):
+    """Layer 6: Browse CSD catalog entries."""
+    if not _db_exists():
+        return []
+    with _con() as con:
+        rows = con.execute(
+            "SELECT * FROM csd_catalog ORDER BY resource_type, name LIMIT ?",
+            (limit,),
+        ).fetchall()
+    return _rows_to_list(rows)
+
+
+@app.get("/layers/7/risks", tags=["Layer Explorer"])
+def layer7_risks(severity: str = Query(""), limit: int = Query(200)):
+    """Layer 7: Browse risk register."""
+    if not _db_exists():
+        return []
+    with _con() as con:
+        if severity:
+            rows = con.execute(
+                """SELECT rr.*, n.name AS program_name FROM risk_register rr
+                   LEFT JOIN nodes n ON n.uuid=rr.program_uuid
+                   WHERE rr.severity=? ORDER BY rr.kind LIMIT ?""",
+                (severity.upper(), limit),
+            ).fetchall()
+        else:
+            rows = con.execute(
+                """SELECT rr.*, n.name AS program_name FROM risk_register rr
+                   LEFT JOIN nodes n ON n.uuid=rr.program_uuid
+                   ORDER BY CASE rr.severity WHEN 'HIGH' THEN 1 WHEN 'MEDIUM' THEN 2 ELSE 3 END,
+                   rr.kind LIMIT ?""",
+                (limit,),
+            ).fetchall()
+    return _rows_to_list(rows)
+
+
+@app.get("/jcl/jobs", tags=["JCL"])
+def list_jcl_jobs(limit: int = Query(100)):
+    """List all JCL jobs with step counts."""
+    if not _db_exists():
+        return []
+    with _con() as con:
+        rows = con.execute(
+            """SELECT job_name, COUNT(DISTINCT step_name) AS step_count,
+                      COUNT(DISTINCT program) AS program_count
+               FROM jcl_job WHERE job_name IS NOT NULL
+               GROUP BY job_name ORDER BY job_name LIMIT ?""",
+            (limit,),
+        ).fetchall()
+    return _rows_to_list(rows)
 
 
 # ── Serve UI (must be last) ───────────────────────────────────────────────────

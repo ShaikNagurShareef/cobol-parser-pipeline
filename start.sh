@@ -16,6 +16,12 @@ fi
 # ── Ensure DB directory exists ─────────────────────────────────────────────────
 mkdir -p artifacts output/diagrams output/java output/specs
 
+# ── Build UI (TypeScript → Vite bundle in ui/dist/) ───────────────────────────
+if command -v node &>/dev/null && [[ -f "ui/package.json" ]]; then
+    echo "  Building UI…"
+    (cd ui && npm run build --silent 2>&1 | tail -3)
+fi
+
 # ── Start FastAPI (serves both API and UI at http://localhost:8000) ────────────
 echo ""
 echo "  ╔══════════════════════════════════════════════════════════╗"
