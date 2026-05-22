@@ -250,24 +250,36 @@ def get_stats():
         cfg_edges   = cnt("SELECT COUNT(*) FROM control_flow")
         file_ops    = cnt("SELECT COUNT(*) FROM file_io")
         risks       = cnt("SELECT COUNT(*) FROM risk_register")
-        total_files = cnt("SELECT COUNT(*) FROM parse_coverage")
-        ok_files    = cnt("SELECT COUNT(*) FROM parse_coverage WHERE status='OK'")
+        # Deduplicate by basename — pipeline phases write absolute and relative
+        # paths for the same file, so count distinct lowercased basenames.
+        _cov_rows = con.execute("SELECT source_file, status FROM parse_coverage").fetchall()
+        import os as _os
+        _seen_base: dict[str, str] = {}
+        for _r in _cov_rows:
+            _base = _os.path.basename(_r[0]).lower()
+            if _base not in _seen_base:
+                _seen_base[_base] = _r[1]
+        total_files = len(_seen_base)
+        ok_files    = sum(1 for s in _seen_base.values() if s == 'OK')
         cov_pct     = round(100 * ok_files / max(total_files, 1), 1)
-        copybook_refs = cnt("SELECT COUNT(*) FROM copybook_use")
+        copybook_refs = cnt("SELECT COUNT(DISTINCT program_uuid || copybook_name) FROM copybook_use")
         cics_verbs  = cnt("SELECT COUNT(*) FROM transaction_flow")
         # DB2/IMS/MQ: count from db_io and nodes payload patterns
         db2_stmts   = cnt("SELECT COUNT(*) FROM db_io") if _table_exists(con, "db_io") else 0
         ims_calls   = cnt("SELECT COUNT(*) FROM nodes WHERE kind='Stmt_EXEC_IMS'") if False else 0
         mq_calls    = cnt("SELECT COUNT(*) FROM nodes WHERE kind='Stmt_EXEC_MQ'") if False else 0
-        # Per file-type counts from parse_coverage
-        cobol_files = cnt("SELECT COUNT(*) FROM parse_coverage WHERE source_file LIKE '%.cbl' OR source_file LIKE '%.CBL'")
-        jcl_files   = cnt("SELECT COUNT(*) FROM parse_coverage WHERE source_file LIKE '%.jcl' OR source_file LIKE '%.JCL'")
-        bms_files   = cnt("SELECT COUNT(*) FROM parse_coverage WHERE source_file LIKE '%.bms' OR source_file LIKE '%.BMS'")
-        csd_files   = cnt("SELECT COUNT(*) FROM parse_coverage WHERE source_file LIKE '%.csd' OR source_file LIKE '%.CSD' OR (source_file LIKE '%.txt' AND source_file NOT LIKE '%.cbl')")
-        # Copybooks: .cpy files
-        cpy_files   = cnt("SELECT COUNT(*) FROM parse_coverage WHERE source_file LIKE '%.cpy' OR source_file LIKE '%.CPY'")
-        # Assembler: .asm / .s / .hlasm files
-        asm_files   = cnt("SELECT COUNT(*) FROM parse_coverage WHERE source_file LIKE '%.asm' OR source_file LIKE '%.ASM' OR source_file LIKE '%.hlasm' OR source_file LIKE '%.HLASM' OR source_file LIKE '%.s'")
+        # Per file-type counts — deduplicated by basename
+        _by_type: dict[str, set] = {}
+        for _r in _cov_rows:
+            _base = _os.path.basename(_r[0]).lower()
+            _ext  = _os.path.splitext(_base)[1]
+            _by_type.setdefault(_ext, set()).add(_base)
+        cobol_files = len(_by_type.get('.cbl', set()))
+        jcl_files   = len(_by_type.get('.jcl', set()))
+        bms_files   = len(_by_type.get('.bms', set()))
+        csd_files   = len(_by_type.get('.csd', set()))
+        cpy_files   = len(_by_type.get('.cpy', set()))
+        asm_files   = len(_by_type.get('.asm', set()) | _by_type.get('.hlasm', set()) | _by_type.get('.s', set()))
 
     return {
         "programs": programs, "paragraphs": paragraphs,

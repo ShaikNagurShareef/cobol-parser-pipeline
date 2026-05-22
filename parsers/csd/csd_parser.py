@@ -13,6 +13,15 @@ import sqlite3
 
 from storage.db import init_db, transaction
 
+_PROJECT_ROOT = pathlib.Path(__file__).parent.parent.parent
+
+
+def _norm_path(p: pathlib.Path) -> str:
+    try:
+        return str(p.resolve().relative_to(_PROJECT_ROOT.resolve()))
+    except ValueError:
+        return str(p)
+
 _DEFINE_RE = re.compile(
     r"DEFINE\s+(PROGRAM|TRANSACTION|MAPSET|FILE|LIBRARY)\s*\(\s*([A-Z0-9@#$-]+)\s*\)",
     re.IGNORECASE,
@@ -65,7 +74,7 @@ def parse_csd_file(csd_file: pathlib.Path, db_path: pathlib.Path) -> dict:
                 (source_file, source_type, status, parse_errors, error_messages)
             VALUES (?,?,?,?,?)
             """,
-            (str(csd_file), "CSD", "OK", 0, "[]"),
+            (_norm_path(csd_file), "CSD", "OK", 0, "[]"),
         )
 
     return {"file": str(csd_file), "entries": len(entries), "status": "OK"}

@@ -127,6 +127,15 @@ def _record_coverage(
         _record_coverage_con(con, source_file, source_type, status, errors, error_msg)
 
 
+def _norm_source_path(p: pathlib.Path) -> str:
+    """Normalize to a project-relative path so absolute and relative insertions
+    resolve to the same UNIQUE key regardless of which pipeline phase calls us."""
+    try:
+        return str(p.resolve().relative_to(PROJECT_ROOT.resolve()))
+    except ValueError:
+        return str(p)
+
+
 def _record_coverage_con(
     con,
     source_file: pathlib.Path,
@@ -143,7 +152,7 @@ def _record_coverage_con(
         VALUES (?,?,?,?,?)
         """,
         (
-            str(source_file),
+            _norm_source_path(source_file),
             source_type,
             status,
             len(errors),

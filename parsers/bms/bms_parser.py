@@ -10,6 +10,15 @@ import sqlite3
 from storage.db import init_db, transaction
 from storage.uuid_gen import make_named_uuid
 
+_PROJECT_ROOT = pathlib.Path(__file__).parent.parent.parent
+
+
+def _norm_path(p: pathlib.Path) -> str:
+    try:
+        return str(p.resolve().relative_to(_PROJECT_ROOT.resolve()))
+    except ValueError:
+        return str(p)
+
 _MSD_RE  = re.compile(r"DFHMSD\s+TYPE=MAP|DFHMSD\s+TYPE=&SYSPARM", re.IGNORECASE)
 _MDI_RE  = re.compile(r"([A-Z0-9]{1,7})\s+DFHMDI\b.*?SIZE=\((\d+),(\d+)\)", re.IGNORECASE | re.DOTALL)
 _MDF_RE  = re.compile(r"([A-Z0-9]{1,7})\s+DFHMDF\s+", re.IGNORECASE)
@@ -78,7 +87,7 @@ def parse_bms_file(bms_file: pathlib.Path, db_path: pathlib.Path) -> dict:
                 (source_file, source_type, status, parse_errors, error_messages)
             VALUES (?,?,?,?,?)
             """,
-            (str(bms_file), "BMS", "OK", 0, "[]"),
+            (_norm_path(bms_file), "BMS", "OK", 0, "[]"),
         )
 
     return {"file": str(bms_file), "maps": len(maps), "status": "OK"}

@@ -16,6 +16,15 @@ from typing import Any
 from storage.db import init_db, transaction
 from storage.uuid_gen import make_named_uuid, make_uuid
 
+_PROJECT_ROOT = pathlib.Path(__file__).parent.parent.parent
+
+
+def _norm_path(p: pathlib.Path) -> str:
+    try:
+        return str(p.resolve().relative_to(_PROJECT_ROOT.resolve()))
+    except ValueError:
+        return str(p)
+
 _JOB_RE   = re.compile(r"^//([A-Z0-9@#$]{1,8})\s+JOB\b", re.IGNORECASE)
 _EXEC_RE  = re.compile(r"^//([A-Z0-9@#$]{0,8})\s+EXEC\s+(PGM=|PROC=)?([A-Z0-9@#$.-]+)", re.IGNORECASE)
 _DD_RE    = re.compile(r"^//([A-Z0-9@#$]{0,8})\s+DD\b", re.IGNORECASE)
@@ -107,7 +116,7 @@ def parse_jcl_file(jcl_file: pathlib.Path, db_path: pathlib.Path) -> dict:
                 (source_file, source_type, status, parse_errors, error_messages)
             VALUES (?,?,?,?,?)
             """,
-            (str(jcl_file), "JCL", "OK" if not errors else "PARSER_ERROR",
+            (_norm_path(jcl_file), "JCL", "OK" if not errors else "PARSER_ERROR",
              len(errors), json.dumps(errors[:5])),
         )
 
