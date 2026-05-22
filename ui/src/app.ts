@@ -839,6 +839,23 @@ const TRANSFORM_STEP_NAMES = [
 ];
 
 async function loadTransformPage(): Promise<void> {
+  // Load portfolio stats for the readiness banner
+  try {
+    const s = await apiFetch<any>('/stats');
+    const set = (id: string, v: any) => { const el = $<HTMLElement>(id); if (el) el.textContent = String(v ?? '—'); };
+    set('tx-port-programs', (s.programs ?? 0).toLocaleString());
+    set('tx-port-rules', (s.business_rules ?? 0).toLocaleString());
+    set('tx-port-risks-high', 0); // will be fetched below
+    set('tx-port-jcl', (s.jcl_files ?? 0).toLocaleString());
+  } catch { /* DB not ready */ }
+  try {
+    const cov = await apiFetch<any>('/coverage');
+    const highRisks = (cov.risk_summary?.HIGH ?? 0);
+    const el = $<HTMLElement>('tx-port-risks-high');
+    if (el) el.textContent = String(highRisks);
+  } catch { /* ignore */ }
+
+  // Populate program dropdown for HITL deep-dive
   const sel = $<HTMLSelectElement>('transform-program');
   if (!sel || sel.options.length > 1) return;
   try {
@@ -2090,21 +2107,10 @@ const HYPERSCALER_COLORS: Record<string, string> = {
 };
 
 async function loadPlatformPage(): Promise<void> {
-  // Populate program dropdown
-  const sel = $<HTMLSelectElement>('plat-program');
-  if (!sel || sel.options.length > 1) return;
-  try {
-    const progs = await apiFetch<Array<{ name: string }>>('/programs?limit=100');
-    progs.forEach(p => {
-      const opt = document.createElement('option');
-      opt.value = p.name;
-      opt.textContent = p.name;
-      sel.appendChild(opt);
-    });
-  } catch { /* DB not ready */ }
   // Highlight default AWS radio
   const defaultLabel = $<HTMLElement>('hs-aws-label');
   if (defaultLabel) defaultLabel.style.borderColor = '#ff9900';
+  // No program dropdown — platform recommender always uses full portfolio scope
 }
 
 function onHyperscalerChange(radio: HTMLInputElement): void {
@@ -2129,11 +2135,10 @@ async function runPlatformRecommender(): Promise<void> {
   $<HTMLElement>('plat-loading')!.style.display = '';
 
   const hyperscaler = (document.querySelector<HTMLInputElement>('input[name="hyperscaler"]:checked'))?.value ?? 'aws';
-  const program = ($<HTMLSelectElement>('plat-program'))?.value ?? '';
   const runtime = ($<HTMLSelectElement>('plat-runtime'))?.value ?? 'microservices';
   const data_strategy = ($<HTMLSelectElement>('plat-data'))?.value ?? 'managed-sql';
   const priority = ($<HTMLSelectElement>('plat-priority'))?.value ?? 'speed';
-  const scope = ($<HTMLSelectElement>('plat-scope'))?.value ?? 'portfolio';
+  const scope = 'portfolio'; // always portfolio — covers all programs, JCL, copybooks, CICS
 
   const msgs: string[] = [];
   const loadingMsg = $<HTMLElement>('plat-loading-msg');
@@ -2141,7 +2146,7 @@ async function runPlatformRecommender(): Promise<void> {
   try {
     const res = await fetch('/platform/recommend', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ hyperscaler, program, runtime, data_strategy, priority, scope }),
+      body: JSON.stringify({ hyperscaler, runtime, data_strategy, priority, scope }),
     });
     if (!res.body) throw new Error('No response body');
     const reader = res.body.getReader();
