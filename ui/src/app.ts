@@ -17,13 +17,27 @@ interface Stats {
   programs: number;
   paragraphs: number;
   data_items: number;
+  conditions_88: number;
   statements: number;
   business_rules: number;
   call_edges: number;
+  cfg_edges: number;
+  file_io_ops: number;
   risks: number;
   coverage_pct: number;
   ok_files: number;
   total_files: number;
+  cobol_files: number;
+  jcl_files: number;
+  bms_files: number;
+  csd_files: number;
+  copybook_files: number;
+  asm_files: number;
+  db2_statements: number;
+  ims_calls: number;
+  mq_calls: number;
+  cics_verbs: number;
+  copybook_refs: number;
 }
 
 interface ASTNode {
@@ -55,8 +69,13 @@ let currentPage = 'dashboard';
 let programs: Program[] = [];
 let currentProgram: string | null = null;
 let diagSource = '';
-let emitJavaText = '';
+let _exportContent = '';
 let specText = '';
+let _personaResults: Record<string, string> = {};
+let _activePersonaTab = '';
+let _transformSessionId = '';
+let _transformSteps: any[] = [];
+let _currentTransformStep = 0;
 let coverageAllRows: CoverageRow[] = [];
 let riskAllRows: RiskRow[] = [];
 let currentVizTab = 'ast';
@@ -125,8 +144,9 @@ function navigate(page: string): void {
   const titles: Record<string, string> = {
     dashboard: 'Dashboard', pipeline: 'Run Pipeline', programs: 'Program Explorer',
     visualizations: 'Visualizations', diagrams: 'Diagrams', spec: 'Spec Generator',
-    emit: 'Java Emitter', langgraph: 'LangGraph', coverage: 'Coverage Report',
+    transform: 'Forward Engineering — Transform', coverage: 'Coverage Report',
     risks: 'Risk Register', settings: 'Settings', layers: 'Layer Explorer',
+    platform: 'Target Platform Recommender',
   };
   const titleEl = $('page-title') as HTMLElement | null;
   if (titleEl) titleEl.textContent = titles[page] ?? page;
@@ -136,7 +156,8 @@ function navigate(page: string): void {
   if (page === 'visualizations') void loadVizProgramDropdown();
   if (page === 'diagrams')       void loadDiagram('call_graph', document.querySelector<HTMLElement>('.diag-btn'));
   if (page === 'spec')           { void loadProgramDropdowns(); void loadCurrentModel(); }
-  if (page === 'emit')           void loadEmitDropdown();
+  if (page === 'transform')      void loadTransformPage();
+  if (page === 'platform')       void loadPlatformPage();
   if (page === 'coverage')       void loadCoverage();
   if (page === 'risks')          void loadRisks();
   if (page === 'settings')       void loadSettings();
@@ -163,12 +184,25 @@ async function checkHealth(): Promise<void> {
 async function loadDashboard(): Promise<void> {
   try {
     const s = await apiFetch<Stats>('/stats');
-    (['programs','paragraphs','data_items','statements','business_rules','call_edges','risks'] as const).forEach(f => {
+    // Core artifact counts
+    (['programs','paragraphs','data_items','conditions_88','statements','business_rules',
+      'call_edges','cfg_edges','risks','cics_verbs'] as const).forEach(f => {
       const el = $<HTMLElement>(`s-${f}`);
       if (el) el.textContent = ((s as any)[f] ?? 0).toLocaleString();
     });
+    // Coverage
     const pctEl = $<HTMLElement>('s-coverage_pct');
     if (pctEl) pctEl.textContent = (s.coverage_pct ?? 0) + '%';
+    const okEl = $<HTMLElement>('s-ok_files');
+    if (okEl) okEl.textContent = (s.ok_files ?? 0).toString();
+    const totEl = $<HTMLElement>('s-total_files');
+    if (totEl) totEl.textContent = (s.total_files ?? 0).toString();
+    // File type breakdown
+    (['cobol_files','jcl_files','bms_files','csd_files','copybook_files',
+      'asm_files','db2_statements','ims_calls','mq_calls','copybook_refs'] as const).forEach(f => {
+      const el = $<HTMLElement>(`s-${f}`);
+      if (el) el.textContent = ((s as any)[f] ?? 0).toLocaleString();
+    });
 
     const cvCtx = ($<HTMLCanvasElement>('coverage-chart'))?.getContext('2d');
     if (cvCtx) {
@@ -196,37 +230,57 @@ async function loadDashboard(): Promise<void> {
         }},
       });
     }
-    renderRubric(s);
+    renderBirdsEyeView(s);
+    renderKnowledgeGraph(s);
   } catch(e) {
-    if (!isAbort(e)) { console.warn('Dashboard unavailable:', (e as Error).message); renderRubric({} as Stats); }
+    if (!isAbort(e)) { console.warn('Dashboard unavailable:', (e as Error).message); renderBirdsEyeView({} as Stats); }
   }
 }
 
-function renderRubric(s: Partial<Stats>): void {
-  const items = [
-    { pct: 20, label: 'Parse Coverage (honest reporting)',          done: (s.total_files ?? 0) > 0 },
-    { pct: 25, label: 'Artifact Contract (Layers 1–7, UUID links)', done: (s.paragraphs ?? 0) > 0 },
-    { pct: 15, label: 'Spec Generation Demo (COTRN02C paragraph)',  done: (s.business_rules ?? 0) > 0 },
-    { pct: 15, label: 'Forward Engineering (IR → Java, COUSR0xC)',  done: (s.programs ?? 0) > 0 },
-    { pct: 10, label: 'Engineering Quality (tests, UUID stability)', done: true },
-    { pct:  5, label: 'Performance (parallel batch, WAL SQLite)',    done: true },
-    { pct:  5, label: 'Migration Risk Register (severity-rated)',    done: (s.risks ?? 0) > 0 },
-    { pct:  5, label: 'LangGraph Orchestration (bonus)',             done: true },
+function renderBirdsEyeView(s: Partial<Stats>): void {
+  const inv = $<HTMLElement>('birds-eye-inventory');
+  if (!inv) return;
+  const rows: Array<{ label: string; count: number; color: string; ext: string }> = [
+    { label: 'COBOL Programs',  count: (s as any).cobol_files    ?? 0, color: '#5ecdd1', ext: '.cbl' },
+    { label: 'Copybooks',       count: (s as any).copybook_files  ?? 0, color: '#60c8fa', ext: '.cpy' },
+    { label: 'JCL Jobs',        count: (s as any).jcl_files       ?? 0, color: '#fbbf24', ext: '.jcl' },
+    { label: 'BMS Maps',        count: (s as any).bms_files       ?? 0, color: '#4ade80', ext: '.bms' },
+    { label: 'CSD Definitions', count: (s as any).csd_files       ?? 0, color: '#a78bfa', ext: '.csd' },
+    { label: 'Assembler',       count: (s as any).asm_files       ?? 0, color: '#f97316', ext: '.asm' },
+    { label: 'DB2 Statements',  count: (s as any).db2_statements  ?? 0, color: '#f87171', ext: 'SQL'  },
+    { label: 'CICS Verbs',      count: (s as any).cics_verbs      ?? 0, color: '#d876d6', ext: 'CICS' },
+    { label: 'Copybook Refs',   count: (s as any).copybook_refs   ?? 0, color: '#55d4eb', ext: 'COPY' },
   ];
-  const el = $<HTMLElement>('rubric-items');
-  if (!el) return;
-  el.innerHTML = items.map(it => `
-    <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border);">
-      <span style="width:38px;text-align:right;font-size:12px;color:var(--muted);font-weight:600;">${it.pct}%</span>
-      <div style="flex:1;">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px;">
-          <span style="font-size:13px;">${it.label}</span>
-          <span class="badge ${it.done ? 'badge-green' : 'badge-amber'}">${it.done ? '✓ Ready' : '⏳ Pending'}</span>
-        </div>
-        <div class="progress-bar"><div class="progress-fill" style="width:${it.done ? 100 : 15}%"></div></div>
+  const total = rows.filter(r => r.ext !== 'SQL' && r.ext !== 'CICS' && r.ext !== 'COPY')
+                    .reduce((a, r) => a + r.count, 0);
+  inv.innerHTML = rows.map(r => {
+    const pct = total > 0 && !['SQL','CICS','COPY'].includes(r.ext)
+      ? Math.round((r.count / total) * 100) : 0;
+    return `<div style="display:flex;align-items:center;gap:10px;">
+      <span style="min-width:130px;font-size:12px;color:var(--muted);">${r.label}</span>
+      <div style="flex:1;background:var(--surface2);border-radius:3px;height:6px;overflow:hidden;">
+        <div style="width:${pct}%;background:${r.color};height:100%;border-radius:3px;"></div>
       </div>
-    </div>`).join('');
+      <span style="min-width:28px;text-align:right;font-weight:700;font-size:13px;color:${r.color};">${r.count.toLocaleString()}</span>
+      <span style="min-width:30px;font-size:11px;color:var(--muted);">${r.ext}</span>
+    </div>`;
+  }).join('');
 }
+
+function renderKnowledgeGraph(s: Partial<Stats>): void {
+  const fields: Array<[string, keyof Stats]> = [
+    ['kg-programs', 'programs'],
+    ['kg-cfg',      'cfg_edges'],
+    ['kg-calls',    'call_edges'],
+    ['kg-rules',    'business_rules'],
+    ['kg-risks',    'risks'],
+  ];
+  for (const [id, key] of fields) {
+    const el = $<HTMLElement>(id);
+    if (el) el.textContent = ((s as any)[key] ?? 0).toLocaleString();
+  }
+}
+
 
 // ── Programs ──────────────────────────────────────────────────────────────────
 async function loadPrograms(): Promise<void> {
@@ -441,20 +495,21 @@ async function loadProgramDropdowns(): Promise<void> {
   try {
     const data = await apiFetch<{ items: Program[] }>('/programs?limit=500');
     programs = data.items ?? [];
-    ['spec-program', 'emit-program'].forEach(id => {
+    const opts = programs.map(p => `<option value="${p.name}">${p.name}</option>`).join('');
+    ['spec-program'].forEach(id => {
       const el = $<HTMLSelectElement>(id);
       if (!el) return;
       const cur = el.value;
       el.innerHTML = '<option value="">— select program —</option>' +
         programs.map(p => `<option value="${p.name}" ${p.name === cur ? 'selected' : ''}>${p.name}</option>`).join('');
     });
+    const transformSel = $<HTMLSelectElement>('transform-program');
+    if (transformSel && transformSel.options.length <= 1) {
+      transformSel.innerHTML = '<option value="">— select program —</option>' + opts;
+    }
   } catch(e) {
     if (!isAbort(e)) console.warn('loadProgramDropdowns failed:', e);
   }
-}
-
-async function loadEmitDropdown(): Promise<void> {
-  await loadProgramDropdowns();
 }
 
 // ── Spec Generator ────────────────────────────────────────────────────────────
@@ -501,38 +556,191 @@ async function loadParaDropdown(prog: string): Promise<void> {
   } catch { /* ignore */ }
 }
 
-async function generateSpec(): Promise<void> {
-  const uuid = ($<HTMLInputElement>('spec-uuid'))?.value ?? '';
+async function generateSpecPersonas(): Promise<void> {
+  const prog  = ($<HTMLSelectElement>('spec-program'))?.value ?? '';
   const scope = ($<HTMLSelectElement>('spec-scope'))?.value ?? 'program';
-  if (!uuid) { showToast('Select a program first', 'error'); return; }
-  const loading = $<HTMLElement>('spec-loading');
-  const output = $<HTMLElement>('spec-output');
+  const uuid_ = ($<HTMLInputElement>('spec-uuid'))?.value ?? '';
+  if (!prog && !uuid_) { showToast('Select a program first', 'error'); return; }
+
+  const personas: string[] = ['business_summary','highlevel_arch','lowlevel_arch',
+    'functional_spec','technical_spec','modernization_spec']
+    .filter(p => ($<HTMLInputElement>(`persona-${p}`))?.checked);
+  if (!personas.length) { showToast('Select at least one persona', 'error'); return; }
+
   const btn = $<HTMLButtonElement>('spec-btn');
-  const grounding = $<HTMLElement>('spec-grounding');
-  if (loading) loading.style.display = '';
-  if (output) output.innerHTML = '';
-  if (grounding) grounding.textContent = '';
+  const progressEl = $<HTMLElement>('spec-progress');
+  const progressMsg = $<HTMLElement>('spec-progress-msg');
+  const progressFill = $<HTMLElement>('spec-progress-fill');
+  const tabsEl = $<HTMLElement>('spec-tabs');
+  const contentEl = $<HTMLElement>('spec-tab-content');
+  const emptyState = $<HTMLElement>('spec-empty-state');
+
   if (btn) btn.disabled = true;
+  if (progressEl) progressEl.style.display = '';
+  if (emptyState) emptyState.style.display = 'none';
+
+  // Clear old tabs
+  _personaResults = {};
+  if (tabsEl) tabsEl.innerHTML = '';
+  if (contentEl) contentEl.innerHTML = '';
+
+  const PERSONA_LABELS: Record<string, string> = {
+    business_summary: 'Business Summary', highlevel_arch: 'High-Level Arch',
+    lowlevel_arch: 'Low-Level Arch', functional_spec: 'Functional Spec',
+    technical_spec: 'Technical Spec', modernization_spec: 'Modernisation',
+  };
+
+  // Add pending tabs
+  for (const p of personas) {
+    addPersonaTab(p, PERSONA_LABELS[p] ?? p, 'pending', tabsEl, contentEl);
+  }
+
+  let done = 0;
   try {
-    const res = await apiFetch<{ spec: string; grounding_score?: number }>('/generate-spec', {
+    const resp = await fetch('/generate-spec/personas', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ uuid, scope }),
+      body: JSON.stringify({ program_name: prog, scope, uuid: uuid_, personas }),
+      signal: sig(),
     });
-    specText = res.spec ?? '';
-    if (output) output.textContent = specText;
-    if (grounding && res.grounding_score !== undefined)
-      grounding.textContent = `Grounding: ${Math.round(res.grounding_score * 100)}%`;
+    if (!resp.ok) throw new Error(await resp.text());
+
+    const reader = resp.body?.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+
+    while (reader) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      buf += decoder.decode(chunk.value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop() ?? '';
+      for (const line of lines) {
+        if (!line.startsWith('data:')) continue;
+        try {
+          const evt = JSON.parse(line.slice(5).trim());
+          if (evt.event === 'persona_done') {
+            _personaResults[evt.persona] = evt.content ?? '';
+            done++;
+            const pct = Math.round((done / personas.length) * 100);
+            if (progressFill) progressFill.style.width = pct + '%';
+            if (progressMsg) progressMsg.textContent = `${done}/${personas.length} personas complete…`;
+            updatePersonaTab(evt.persona, evt.content, tabsEl, contentEl, PERSONA_LABELS);
+          } else if (evt.event === 'persona_error') {
+            updatePersonaTabError(evt.persona, evt.error, tabsEl);
+          } else if (evt.event === 'all_done') {
+            if (progressMsg) progressMsg.textContent = 'All personas complete!';
+          }
+        } catch { /* partial JSON */ }
+      }
+    }
   } catch(e) {
-    if (!isAbort(e) && output)
-      output.innerHTML = `<span style="color:#f87171;">Error: ${(e as Error).message}</span>`;
+    if (!isAbort(e)) showToast(`Generation failed: ${(e as Error).message}`, 'error');
   } finally {
-    if (loading) loading.style.display = 'none';
     if (btn) btn.disabled = false;
+    if (progressEl) setTimeout(() => { if (progressEl) progressEl.style.display = 'none'; }, 2000);
+    const mdBtn  = $<HTMLButtonElement>('spec-export-md');
+    const pdfBtn = $<HTMLButtonElement>('spec-export-pdf');
+    if (mdBtn)  mdBtn.disabled  = Object.keys(_personaResults).length === 0;
+    if (pdfBtn) pdfBtn.disabled = Object.keys(_personaResults).length === 0;
+  }
+}
+
+function addPersonaTab(persona: string, label: string, state: string,
+                       tabsEl: HTMLElement|null, contentEl: HTMLElement|null): void {
+  if (tabsEl) {
+    const tab = document.createElement('div');
+    tab.id = `persona-tab-${persona}`;
+    tab.className = 'tab';
+    tab.style.cssText = 'padding:8px 14px;font-size:12px;';
+    tab.innerHTML = `<span id="persona-tab-dot-${persona}" style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#fbbf24;margin-right:5px;vertical-align:middle;"></span>${label}`;
+    tab.onclick = () => switchPersonaTab(persona);
+    tabsEl.appendChild(tab);
+  }
+  if (contentEl) {
+    const div = document.createElement('div');
+    div.id = `persona-content-${persona}`;
+    div.style.display = 'none';
+    div.style.cssText = 'display:none;white-space:pre-wrap;font-size:13px;line-height:1.7;color:var(--text);';
+    div.textContent = 'Generating…';
+    contentEl.appendChild(div);
+  }
+}
+
+function updatePersonaTab(persona: string, content: string,
+                          tabsEl: HTMLElement|null, contentEl: HTMLElement|null,
+                          labels: Record<string,string>): void {
+  const dot = $<HTMLElement>(`persona-tab-dot-${persona}`);
+  if (dot) dot.style.background = '#4ade80';
+  const div = $<HTMLElement>(`persona-content-${persona}`);
+  if (div) div.textContent = content;
+  // Auto-switch to first completed tab
+  if (_activePersonaTab === '') switchPersonaTab(persona);
+}
+
+function updatePersonaTabError(persona: string, error: string, tabsEl: HTMLElement|null): void {
+  const dot = $<HTMLElement>(`persona-tab-dot-${persona}`);
+  if (dot) dot.style.background = '#f87171';
+  const div = $<HTMLElement>(`persona-content-${persona}`);
+  if (div) { div.textContent = `Error: ${error}`; div.style.color = '#f87171'; }
+}
+
+function switchPersonaTab(persona: string): void {
+  _activePersonaTab = persona;
+  document.querySelectorAll('[id^="persona-tab-"]').forEach(t => (t as HTMLElement).classList.remove('active'));
+  document.querySelectorAll('[id^="persona-content-"]').forEach(d => { (d as HTMLElement).style.display = 'none'; });
+  const tab = $<HTMLElement>(`persona-tab-${persona}`);
+  const div = $<HTMLElement>(`persona-content-${persona}`);
+  if (tab) tab.classList.add('active');
+  if (div) div.style.display = 'block';
+}
+
+function toggleAllPersonas(state: boolean): void {
+  ['business_summary','highlevel_arch','lowlevel_arch','functional_spec','technical_spec','modernization_spec']
+    .forEach(p => {
+      const cb = $<HTMLInputElement>(`persona-${p}`);
+      if (cb) cb.checked = state;
+    });
+}
+
+function exportSpecMd(): void {
+  if (!Object.keys(_personaResults).length) return;
+  const prog = ($<HTMLSelectElement>('spec-program'))?.value ?? 'spec';
+  const content = Object.entries(_personaResults)
+    .map(([p, c]) => `# ${p.replace(/_/g,' ').replace(/\b\w/g, l => l.toUpperCase())}\n\n${c}\n\n---\n\n`)
+    .join('');
+  const blob = new Blob([content], { type: 'text/markdown' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `${prog}_spec.md`;
+  a.click();
+}
+
+async function exportSpecPdf(): Promise<void> {
+  if (!Object.keys(_personaResults).length) return;
+  const prog = ($<HTMLSelectElement>('spec-program'))?.value ?? 'spec';
+  const content = Object.entries(_personaResults)
+    .map(([p, c]) => `# ${p.replace(/_/g,' ').replace(/\b\w/g, l => l.toUpperCase())}\n\n${c}\n\n---\n\n`)
+    .join('');
+  try {
+    const resp = await fetch('/specs/export/pdf', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content, title: `${prog} — Specification` }),
+    });
+    if (!resp.ok) { showToast('PDF export failed — install weasyprint', 'error'); return; }
+    const blob = await resp.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `${prog}_spec.pdf`;
+    a.click();
+    showToast('PDF downloaded!');
+  } catch(e) {
+    if (!isAbort(e)) showToast(`PDF failed: ${(e as Error).message}`, 'error');
   }
 }
 
 function copySpec(): void {
-  void navigator.clipboard.writeText(specText).then(() => showToast('Copied!'));
+  const content = Object.values(_personaResults).join('\n\n---\n\n');
+  void navigator.clipboard.writeText(content).then(() => showToast('Copied!'));
 }
 
 // ── Holistic Modernization Report ─────────────────────────────────────────────
@@ -623,49 +831,266 @@ function copyModernizationReport(): void {
   void navigator.clipboard.writeText(_modReportText).then(() => showToast('Full report copied to clipboard!'));
 }
 
-// ── Java Emitter ──────────────────────────────────────────────────────────────
-async function emitJava(): Promise<void> {
-  const prog = ($<HTMLSelectElement>('emit-program'))?.value ?? '';
-  if (!prog) { showToast('Select a program', 'error'); return; }
-  await doEmit(prog);
-}
+// ── Transform Page ────────────────────────────────────────────────────────────
 
-async function quickEmit(prog: string): Promise<void> {
-  const sel = $<HTMLSelectElement>('emit-program');
-  if (sel) sel.value = prog;
-  await doEmit(prog);
-}
+const TRANSFORM_STEP_NAMES = [
+  'Discovery', 'Specification', 'Architecture',
+  'Domain Model', 'Business Logic', 'Integration', 'Tests'
+];
 
-async function doEmit(prog: string): Promise<void> {
-  const loading = $<HTMLElement>('emit-loading');
-  const fname = $<HTMLElement>('emit-filename');
-  const meta = $<HTMLElement>('emit-meta');
-  if (loading) loading.style.display = '';
-  if (fname) fname.textContent = 'Java Output';
-  if (meta) meta.textContent = '';
+async function loadTransformPage(): Promise<void> {
+  const sel = $<HTMLSelectElement>('transform-program');
+  if (!sel || sel.options.length > 1) return;
   try {
-    const res = await apiFetch<{ java_source: string; lines: number }>(`/emit-java/${encodeURIComponent(prog)}`);
-    emitJavaText = res.java_source ?? '';
-    if (fname) fname.textContent = prog + '.java';
-    if (meta) meta.textContent = `${res.lines} lines`;
-    const codeEl = $<HTMLElement>('emit-code');
-    if (codeEl) {
-      codeEl.textContent = emitJavaText;
-      codeEl.className = 'language-java';
-      hljs.highlightElement(codeEl);
-    }
+    const data = await apiFetch<{ programs: any[] }>('/programs');
+    sel.innerHTML = '<option value="">— select program —</option>' +
+      (data.programs ?? []).map((p: any) => `<option value="${p.name}">${p.name}</option>`).join('');
+  } catch { /* ignore */ }
+}
+
+async function startTransform(): Promise<void> {
+  const prog = ($<HTMLSelectElement>('transform-program'))?.value ?? '';
+  const fw   = ($<HTMLInputElement>('transform-framework'))?.value ?? 'Spring Boot';
+  const auto = ($<HTMLInputElement>('transform-auto'))?.checked ?? false;
+  if (!prog) { showToast('Select a program first', 'error'); return; }
+
+  const btn = $<HTMLButtonElement>('transform-start-btn');
+  if (btn) btn.disabled = true;
+
+  try {
+    const session = await apiFetch<any>('/transform/sessions', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ program_name: prog, framework: fw, auto_mode: auto }),
+    });
+    _transformSessionId = session.session_id;
+    _transformSteps = session.steps ?? [];
+    _currentTransformStep = 0;
+    renderTransformUI(auto);
+    showToast(`Session ${_transformSessionId} created — run Step 1`);
   } catch(e) {
-    if (!isAbort(e)) {
-      const codeEl = $<HTMLElement>('emit-code');
-      if (codeEl) { codeEl.textContent = `// Error: ${(e as Error).message}`; codeEl.className = 'language-text'; }
-    }
-  } finally {
-    if (loading) loading.style.display = 'none';
+    if (!isAbort(e)) showToast(`Failed: ${(e as Error).message}`, 'error');
+    if (btn) btn.disabled = false;
   }
 }
 
-function copyJava(): void {
-  void navigator.clipboard.writeText(emitJavaText).then(() => showToast('Copied!'));
+function renderTransformUI(autoMode: boolean): void {
+  const progressBar = $<HTMLElement>('transform-progress-bar');
+  const stepPanel   = $<HTMLElement>('transform-step-panel');
+  const complete    = $<HTMLElement>('transform-complete');
+  if (progressBar) progressBar.style.display = '';
+  if (stepPanel)   stepPanel.style.display   = '';
+  if (complete)    complete.style.display    = 'none';
+
+  // Render step indicators
+  const indicators = $<HTMLElement>('transform-step-indicators');
+  if (indicators) {
+    indicators.innerHTML = TRANSFORM_STEP_NAMES.map((name, i) => `
+      <div style="display:flex;align-items:center;flex:1;" id="step-ind-${i}">
+        <div style="text-align:center;flex:1;">
+          <div style="width:32px;height:32px;border-radius:50%;background:var(--surface2);border:2px solid var(--border);
+               display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;
+               margin:0 auto 4px;color:var(--muted);" id="step-bubble-${i}">${i+1}</div>
+          <div style="font-size:10px;color:var(--muted);">${name}</div>
+        </div>
+        ${i < TRANSFORM_STEP_NAMES.length - 1 ? '<div style="flex:1;height:2px;background:var(--border);margin-bottom:14px;" id="step-connector-'+i+'"></div>' : ''}
+      </div>
+    `).join('');
+  }
+
+  // Render the first step
+  renderStepCard(0, autoMode);
+}
+
+function renderStepCard(stepId: number, autoMode: boolean): void {
+  const panel = $<HTMLElement>('transform-step-panel');
+  if (!panel) return;
+  const stepName = TRANSFORM_STEP_NAMES[stepId] ?? `Step ${stepId + 1}`;
+  panel.innerHTML = `
+    <div class="card" id="active-step-card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+        <div>
+          <span class="badge badge-teal" style="margin-right:8px;">Step ${stepId + 1} of ${TRANSFORM_STEP_NAMES.length}</span>
+          <span style="font-weight:700;font-size:16px;">${stepName}</span>
+        </div>
+        ${autoMode ? '<span class="badge badge-green">Auto Mode</span>' : ''}
+      </div>
+      <div id="step-run-area">
+        <button id="step-run-btn" class="btn btn-primary" onclick="runTransformStep(${stepId})">
+          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          Run ${stepName} Agent
+        </button>
+      </div>
+      <div id="step-loading" style="display:none;color:var(--muted);font-size:13px;padding:16px 0;">
+        <span class="spin" style="display:inline-block;margin-right:8px;">⟳</span> Agent running…
+      </div>
+      <div id="step-output-area" style="display:none;margin-top:16px;">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
+          <div>
+            <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px;">Output</div>
+            <div id="step-output" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px;max-height:400px;overflow:auto;font-size:12px;white-space:pre-wrap;line-height:1.6;"></div>
+          </div>
+          <div>
+            <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px;">Rationale</div>
+            <div id="step-rationale" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px;max-height:400px;overflow:auto;font-size:12px;color:var(--muted);white-space:pre-wrap;line-height:1.6;"></div>
+          </div>
+        </div>
+        <div style="display:flex;gap:10px;align-items:center;">
+          <button class="btn btn-success" onclick="approveTransformStep(${stepId})">✓ Approve &amp; Continue</button>
+          <button class="btn btn-danger" onclick="rejectTransformStep(${stepId})">✗ Reject &amp; Re-run</button>
+          <div id="hitl-feedback-row" style="flex:1;display:flex;gap:8px;display:none;">
+            <input id="hitl-feedback" type="text" placeholder="Feedback for re-run…" style="flex:1;">
+          </div>
+          ${autoMode ? '<span class="badge badge-green" style="margin-left:auto;">LLM will auto-approve</span>' : ''}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+async function runTransformStep(stepId: number): Promise<void> {
+  const runArea  = $<HTMLElement>('step-run-area');
+  const loading  = $<HTMLElement>('step-loading');
+  const outArea  = $<HTMLElement>('step-output-area');
+  if (runArea)  runArea.style.display  = 'none';
+  if (loading)  loading.style.display  = '';
+  if (outArea)  outArea.style.display  = 'none';
+
+  try {
+    const result = await apiFetch<any>(
+      `/transform/sessions/${_transformSessionId}/steps/${stepId}/run`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }
+    );
+    const outEl  = $<HTMLElement>('step-output');
+    const ratEl  = $<HTMLElement>('step-rationale');
+    if (outEl)  outEl.textContent  = result.output   ?? '(no output)';
+    if (ratEl)  ratEl.textContent  = result.rationale ?? '(no rationale)';
+    if (loading) loading.style.display = 'none';
+    if (outArea) outArea.style.display = '';
+    updateStepBubble(stepId, 'awaiting');
+
+    // Auto-approve if auto_mode was set server-side
+    if (result.auto_approved) {
+      await new Promise(r => setTimeout(r, 800));
+      await approveTransformStep(stepId);
+    }
+  } catch(e) {
+    if (!isAbort(e)) {
+      if (loading) loading.style.display = 'none';
+      if (runArea) runArea.style.display = '';
+      showToast(`Step failed: ${(e as Error).message}`, 'error');
+    }
+  }
+}
+
+async function approveTransformStep(stepId: number): Promise<void> {
+  try {
+    const res = await apiFetch<any>(
+      `/transform/sessions/${_transformSessionId}/steps/${stepId}/approve`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }
+    );
+    updateStepBubble(stepId, 'approved');
+    const autoMode = ($<HTMLInputElement>('transform-auto'))?.checked ?? false;
+    const nextStep = res.next_step;
+    if (nextStep !== null && nextStep !== undefined) {
+      _currentTransformStep = nextStep;
+      renderStepCard(nextStep, autoMode);
+      if (autoMode) {
+        await new Promise(r => setTimeout(r, 400));
+        await runTransformStep(nextStep);
+      }
+    } else {
+      // All done
+      const panel    = $<HTMLElement>('transform-step-panel');
+      const complete = $<HTMLElement>('transform-complete');
+      if (panel)    panel.style.display    = 'none';
+      if (complete) complete.style.display = '';
+      showToast('All steps complete! Download your output.', 'ok');
+    }
+  } catch(e) {
+    if (!isAbort(e)) showToast(`Approve failed: ${(e as Error).message}`, 'error');
+  }
+}
+
+async function rejectTransformStep(stepId: number): Promise<void> {
+  const fb = ($<HTMLInputElement>('hitl-feedback'))?.value ?? '';
+  const fbRow = $<HTMLElement>('hitl-feedback-row');
+  if (!fb) {
+    if (fbRow) fbRow.style.display = 'flex';
+    showToast('Enter feedback before rejecting', 'error');
+    return;
+  }
+  try {
+    await apiFetch<any>(
+      `/transform/sessions/${_transformSessionId}/steps/${stepId}/reject`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ feedback: fb }) }
+    );
+    updateStepBubble(stepId, 'rejected');
+    const autoMode = ($<HTMLInputElement>('transform-auto'))?.checked ?? false;
+    renderStepCard(stepId, autoMode);
+    showToast('Step rejected — edit feedback and re-run', 'error');
+  } catch(e) {
+    if (!isAbort(e)) showToast(`Reject failed: ${(e as Error).message}`, 'error');
+  }
+}
+
+function updateStepBubble(stepId: number, state: 'awaiting'|'approved'|'rejected'|'running'): void {
+  const bubble = $<HTMLElement>(`step-bubble-${stepId}`);
+  const conn   = $<HTMLElement>(`step-connector-${stepId}`);
+  if (!bubble) return;
+  const colors: Record<string, string> = {
+    running: '#fbbf24', awaiting: '#009ddc', approved: '#4ade80', rejected: '#f87171'
+  };
+  bubble.style.background   = colors[state] ?? 'var(--surface2)';
+  bubble.style.borderColor  = colors[state] ?? 'var(--border)';
+  bubble.style.color        = '#fff';
+  if (state === 'approved' && conn) conn.style.background = '#4ade80';
+}
+
+function resetTransform(): void {
+  _transformSessionId = '';
+  _transformSteps = [];
+  _currentTransformStep = 0;
+  const progressBar = $<HTMLElement>('transform-progress-bar');
+  const stepPanel   = $<HTMLElement>('transform-step-panel');
+  const complete    = $<HTMLElement>('transform-complete');
+  const startBtn    = $<HTMLButtonElement>('transform-start-btn');
+  if (progressBar) progressBar.style.display = 'none';
+  if (stepPanel)   stepPanel.style.display   = 'none';
+  if (complete)    complete.style.display    = 'none';
+  if (startBtn)    startBtn.disabled         = false;
+}
+
+async function downloadTransformOutput(format: 'md' | 'pdf'): Promise<void> {
+  if (!_transformSessionId) return;
+  try {
+    const session = await apiFetch<any>(`/transform/sessions/${_transformSessionId}`);
+    const combined = TRANSFORM_STEP_NAMES.map((name, i) => {
+      const step = session.steps?.[i];
+      return `# Step ${i+1}: ${name}\n\n${step?.output ?? '(pending)'}\n\n---\n\n`;
+    }).join('');
+    const title = `${session.program_name}_${session.framework.replace(/ /g,'_')}_Transform`;
+    if (format === 'md') {
+      const blob = new Blob([combined], { type: 'text/markdown' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `${title}.md`;
+      a.click();
+    } else {
+      const resp = await fetch('/specs/export/pdf', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: combined, title }),
+      });
+      if (!resp.ok) { showToast('PDF export failed', 'error'); return; }
+      const blob = await resp.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `${title}.pdf`;
+      a.click();
+    }
+  } catch(e) {
+    if (!isAbort(e)) showToast(`Download failed: ${(e as Error).message}`, 'error');
+  }
 }
 
 // ── Pipeline ──────────────────────────────────────────────────────────────────
@@ -699,6 +1124,105 @@ function updatePipelineProgress(pct: number): void {
   if (label) label.textContent = Math.round(pct) + '%';
 }
 
+// ── Source tab switching ──────────────────────────────────────────────────────
+
+let _detectedCorpus = '';
+
+function switchSourceTab(tab: 'github' | 'zip' | 'local'): void {
+  ['github', 'zip', 'local'].forEach(t => {
+    const el = $<HTMLElement>(`source-${t}`);
+    if (el) el.style.display = t === tab ? '' : 'none';
+  });
+  document.querySelectorAll<HTMLElement>('#source-tabs .tab').forEach((el, i) => {
+    const tabs = ['github', 'zip', 'local'];
+    el.classList.toggle('active', tabs[i] === tab);
+  });
+}
+
+async function cloneGithub(): Promise<void> {
+  const urlEl = $<HTMLInputElement>('github-url');
+  const url = urlEl?.value.trim() ?? '';
+  if (!url) return;
+  const logEl = $<HTMLElement>('clone-log');
+  if (!logEl) return;
+  logEl.style.display = '';
+  logEl.innerHTML = `<div class="card-sm" style="font-size:12px;color:var(--muted);">Cloning…</div>`;
+
+  try {
+    const res = await fetch('/pipeline/clone-github', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url }),
+    });
+    if (!res.body) throw new Error('No response body');
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    logEl.innerHTML = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const parts = buf.split('\n\n');
+      buf = parts.pop() ?? '';
+      for (const part of parts) {
+        if (!part.startsWith('data:')) continue;
+        try {
+          const ev = JSON.parse(part.slice(5));
+          if (ev.kind === 'result') {
+            const d = JSON.parse(ev.msg);
+            _detectedCorpus = d.corpus || d.repo;
+            const preview = $<HTMLElement>('pipeline-corpus-preview');
+            const previewPath = $<HTMLElement>('corpus-preview-path');
+            if (preview) preview.style.display = '';
+            if (previewPath) previewPath.textContent = _detectedCorpus;
+            logEl.innerHTML += `<div style="font-size:12px;color:#4ade80;margin-top:6px;">✓ Ready — corpus: ${d.corpus || 'auto-detect'}</div>`;
+          } else {
+            const div = document.createElement('div');
+            div.className = `log-line log-${ev.kind}`;
+            div.style.fontSize = '12px';
+            div.textContent = ev.msg;
+            logEl.appendChild(div);
+          }
+        } catch { /* skip */ }
+      }
+    }
+  } catch(e) {
+    logEl.innerHTML += `<div style="color:#f87171;font-size:12px;">${(e as Error).message}</div>`;
+  }
+}
+
+async function uploadZip(file: File | null | undefined): Promise<void> {
+  if (!file) return;
+  const statusEl = $<HTMLElement>('zip-status');
+  if (statusEl) statusEl.textContent = `Uploading ${file.name}…`;
+  const form = new FormData();
+  form.append('file', file);
+  try {
+    const res = await fetch('/pipeline/upload-zip', { method: 'POST', body: form });
+    const d = await res.json();
+    if (d.ok) {
+      _detectedCorpus = d.corpus || d.repo;
+      const preview = $<HTMLElement>('pipeline-corpus-preview');
+      const previewPath = $<HTMLElement>('corpus-preview-path');
+      if (preview) preview.style.display = '';
+      if (previewPath) previewPath.textContent = _detectedCorpus;
+      if (statusEl) statusEl.innerHTML = `<span style="color:#4ade80;">✓ Extracted to ${d.repo} — corpus: ${d.corpus || 'auto-detect'}</span>`;
+    } else {
+      if (statusEl) statusEl.innerHTML = `<span style="color:#f87171;">Error: ${d.detail ?? 'Upload failed'}</span>`;
+    }
+  } catch(e) {
+    if (statusEl) statusEl.innerHTML = `<span style="color:#f87171;">${(e as Error).message}</span>`;
+  }
+}
+
+function handleZipDrop(event: DragEvent): void {
+  event.preventDefault();
+  const el = document.getElementById('zip-drop-zone');
+  if (el) el.style.borderColor = 'var(--border)';
+  const file = event.dataTransfer?.files?.[0];
+  if (file?.name.endsWith('.zip')) void uploadZip(file);
+}
+
 async function runPipeline(): Promise<void> {
   if (pipelineRunning) return;
   setPipelineUI(true);
@@ -707,7 +1231,10 @@ async function runPipeline(): Promise<void> {
   stagesComplete.clear();
   updatePipelineProgress(0);
 
-  const corpus = ($<HTMLInputElement>('corpus-path'))?.value || 'external/carddemo/app/cbl';
+  // Prefer auto-detected corpus from clone/upload, then local path input
+  const corpus = _detectedCorpus
+    || ($<HTMLInputElement>('corpus-path'))?.value
+    || 'external/carddemo/app/cbl';
   try {
     const res = await fetch('/pipeline/run', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1537,6 +2064,190 @@ function lxClose(): void {
   if (panel) panel.style.display = 'none';
 }
 
+function zoomDiagram(factor: number): void {
+  const wrap = document.querySelector<HTMLElement>('.mermaid-wrap');
+  if (!wrap) return;
+  const svg = wrap.querySelector<SVGElement>('svg');
+  if (!svg) return;
+  if (factor === 1) {
+    svg.style.transform = '';
+    svg.style.transformOrigin = 'top left';
+  } else {
+    const current = parseFloat(svg.style.transform?.replace('scale(', '').replace(')', '') || '1');
+    const next = Math.max(0.3, Math.min(current * factor, 5));
+    svg.style.transform = `scale(${next})`;
+    svg.style.transformOrigin = 'top left';
+    svg.style.display = 'block';
+    wrap.style.overflow = 'auto';
+    wrap.style.minHeight = '400px';
+  }
+}
+
+// ── Platform Recommender ─────────────────────────────────────────────────────
+
+const HYPERSCALER_COLORS: Record<string, string> = {
+  aws: '#ff9900', azure: '#0078d4', gcp: '#4285f4', 'on-prem': '#5ecdd1',
+};
+
+async function loadPlatformPage(): Promise<void> {
+  // Populate program dropdown
+  const sel = $<HTMLSelectElement>('plat-program');
+  if (!sel || sel.options.length > 1) return;
+  try {
+    const progs = await apiFetch<Array<{ name: string }>>('/programs?limit=100');
+    progs.forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p.name;
+      opt.textContent = p.name;
+      sel.appendChild(opt);
+    });
+  } catch { /* DB not ready */ }
+  // Highlight default AWS radio
+  const defaultLabel = $<HTMLElement>('hs-aws-label');
+  if (defaultLabel) defaultLabel.style.borderColor = '#ff9900';
+}
+
+function onHyperscalerChange(radio: HTMLInputElement): void {
+  document.querySelectorAll<HTMLElement>('[id^="hs-"]').forEach(el => {
+    el.style.borderColor = 'var(--border)';
+  });
+  const label = document.getElementById(`hs-${radio.value}-label`);
+  if (label) label.style.borderColor = HYPERSCALER_COLORS[radio.value] ?? 'var(--ust-teal)';
+}
+
+function onPlatProgramChange(): void {
+  const prog = ($<HTMLSelectElement>('plat-program'))?.value;
+  const scopeEl = $<HTMLSelectElement>('plat-scope');
+  if (scopeEl) scopeEl.value = prog ? 'program' : 'portfolio';
+}
+
+async function runPlatformRecommender(): Promise<void> {
+  const btn = $<HTMLButtonElement>('plat-run-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Generating…'; }
+  $<HTMLElement>('plat-placeholder')!.style.display = 'none';
+  $<HTMLElement>('plat-result')!.style.display = 'none';
+  $<HTMLElement>('plat-loading')!.style.display = '';
+
+  const hyperscaler = (document.querySelector<HTMLInputElement>('input[name="hyperscaler"]:checked'))?.value ?? 'aws';
+  const program = ($<HTMLSelectElement>('plat-program'))?.value ?? '';
+  const runtime = ($<HTMLSelectElement>('plat-runtime'))?.value ?? 'microservices';
+  const data_strategy = ($<HTMLSelectElement>('plat-data'))?.value ?? 'managed-sql';
+  const priority = ($<HTMLSelectElement>('plat-priority'))?.value ?? 'speed';
+  const scope = ($<HTMLSelectElement>('plat-scope'))?.value ?? 'portfolio';
+
+  const msgs: string[] = [];
+  const loadingMsg = $<HTMLElement>('plat-loading-msg');
+
+  try {
+    const res = await fetch('/platform/recommend', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ hyperscaler, program, runtime, data_strategy, priority, scope }),
+    });
+    if (!res.body) throw new Error('No response body');
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    const stages = ['Analysing artifact store…', 'Building context slice…', 'Mapping to cloud services…', 'Generating recommendation…'];
+    let stageIdx = 0;
+    const stageTimer = setInterval(() => {
+      if (loadingMsg && stageIdx < stages.length) loadingMsg.textContent = stages[stageIdx++];
+    }, 1200);
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const parts = buf.split('\n\n');
+      buf = parts.pop() ?? '';
+      for (const part of parts) {
+        if (!part.startsWith('data:')) continue;
+        try {
+          const ev = JSON.parse(part.slice(5));
+          if (ev.kind === 'result') msgs.push(ev.msg);
+          else if (ev.kind === 'error') msgs.push(`**Error:** ${ev.msg}`);
+        } catch { /* skip */ }
+      }
+    }
+    clearInterval(stageTimer);
+  } catch(e) {
+    msgs.push(`**Error:** ${(e as Error).message}`);
+  }
+
+  const resultEl = $<HTMLElement>('plat-result')!;
+  $<HTMLElement>('plat-loading')!.style.display = 'none';
+  resultEl.style.display = '';
+
+  const hs = hyperscaler;
+  const hsColor = HYPERSCALER_COLORS[hs] ?? '#5ecdd1';
+  const markdown = msgs.join('\n\n') || 'No recommendation generated.';
+  resultEl.innerHTML = `
+    <div class="card" style="border-top:3px solid ${hsColor};">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px;">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <div style="width:4px;height:24px;background:${hsColor};border-radius:2px;"></div>
+          <div style="font-weight:700;font-size:15px;">Architecture Recommendation — ${hs.toUpperCase()}</div>
+        </div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-secondary" style="font-size:12px;" onclick="exportPlatformMd()">⬇ .md</button>
+          <button class="btn btn-secondary" style="font-size:12px;" onclick="exportPlatformPdf()">⬇ PDF</button>
+          <button class="btn btn-secondary" style="font-size:12px;" onclick="runPlatformRecommender()">↺ Regenerate</button>
+        </div>
+      </div>
+      <div id="plat-markdown-body" style="font-size:13px;line-height:1.8;color:var(--text);max-height:680px;overflow:auto;"></div>
+    </div>`;
+
+  const mdBody = $<HTMLElement>('plat-markdown-body')!;
+  mdBody.innerHTML = _renderMarkdown(markdown);
+
+  if (btn) { btn.disabled = false; btn.textContent = 'Generate Recommendation'; }
+  (btn as any).textContent = 'Generate Recommendation';
+  if (btn) btn.disabled = false;
+  const btnEl = $<HTMLButtonElement>('plat-run-btn');
+  if (btnEl) { btnEl.disabled = false; btnEl.innerHTML = '<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4"/></svg> Generate Recommendation'; }
+}
+
+function _renderMarkdown(md: string): string {
+  return md
+    .replace(/^## (.+)$/gm, '<h2 style="color:#5ecdd1;font-size:14px;font-weight:700;margin:20px 0 8px;border-bottom:1px solid var(--border);padding-bottom:6px;">$1</h2>')
+    .replace(/^### (.+)$/gm, '<h3 style="color:#60c8fa;font-size:13px;font-weight:600;margin:14px 0 6px;">$1</h3>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong style="color:var(--text);">$1</strong>')
+    .replace(/`([^`]+)`/g, '<code style="background:var(--surface2);padding:2px 5px;border-radius:3px;font-size:12px;">$1</code>')
+    .replace(/^- (.+)$/gm, '<div style="display:flex;gap:8px;margin:4px 0;"><span style="color:#5ecdd1;flex-shrink:0;">•</span><span>$1</span></div>')
+    .replace(/^(\d+)\. (.+)$/gm, '<div style="display:flex;gap:8px;margin:4px 0;"><span style="color:#fbbf24;min-width:20px;">$1.</span><span>$2</span></div>')
+    .replace(/\n\n/g, '<br style="line-height:2;"><br>')
+    .replace(/\n/g, '<br>');
+}
+
+async function exportPlatformMd(): Promise<void> {
+  const el = $<HTMLElement>('plat-markdown-body');
+  if (!el) return;
+  const text = el.innerText;
+  const blob = new Blob([text], { type: 'text/markdown' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'platform-recommendation.md';
+  a.click();
+}
+
+async function exportPlatformPdf(): Promise<void> {
+  const el = $<HTMLElement>('plat-markdown-body');
+  if (!el) return;
+  try {
+    const res = await fetch('/specs/export/pdf', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: el.innerText, title: 'Platform Architecture Recommendation' }),
+    });
+    if (!res.ok) throw new Error(`PDF export failed: ${res.status}`);
+    const blob = await res.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'platform-recommendation.pdf';
+    a.click();
+  } catch(e) {
+    alert(`PDF export error: ${(e as Error).message}`);
+  }
+}
+
 // ── Expose to window for onclick handlers ─────────────────────────────────────
 Object.assign(window as any, {
   navigate,
@@ -1549,20 +2260,37 @@ Object.assign(window as any, {
   loadDiagram,
   copyDiagramSource,
   loadProgramDropdowns,
-  loadEmitDropdown,
   onSpecProgramChange,
   onSpecScopeChange,
-  generateSpec,
+  generateSpecPersonas,
+  toggleAllPersonas,
+  switchPersonaTab,
+  exportSpecMd,
+  exportSpecPdf,
   copySpec,
   generateModernizationReport,
   viewModernizationReport,
   copyModernizationReport,
-  emitJava,
-  quickEmit,
-  copyJava,
+  loadTransformPage,
+  startTransform,
+  runTransformStep,
+  approveTransformStep,
+  rejectTransformStep,
+  resetTransform,
+  downloadTransformOutput,
   runPipeline,
   runSmoke,
   cancelPipeline,
+  switchSourceTab,
+  cloneGithub,
+  uploadZip,
+  handleZipDrop,
+  loadPlatformPage,
+  onHyperscalerChange,
+  onPlatProgramChange,
+  runPlatformRecommender,
+  exportPlatformMd,
+  exportPlatformPdf,
   filterCovTable,
   filterRiskTable,
   loadVizProgramDropdown,
@@ -1577,6 +2305,7 @@ Object.assign(window as any, {
   loadSourceCode,
   lxBrowse,
   lxClose,
+  zoomDiagram,
 });
 
 // ── Init ──────────────────────────────────────────────────────────────────────

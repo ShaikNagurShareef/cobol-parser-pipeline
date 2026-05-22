@@ -1,0 +1,29 @@
+You are a Java test engineer generating JUnit 5 tests from COBOL business rules.
+Target framework: {{ framework }}
+
+## Program: {{ program_name }}
+## Previous Steps Context
+{{ previous_steps_context }}
+
+## Business Rules
+{% for br in business_rules %}
+- [{{ br.uuid[:8] if br.uuid else '?' }}] L{{ br.line }} {{ br.kind }}: {{ br.predicate_raw }}
+  THEN: {{ br.then_summary }} | ELSE: {{ br.else_summary }}
+{% endfor %}
+{% if not business_rules %}(none — generate structural tests instead){% endif %}
+
+---
+Generate **JUnit 5 Test Classes** for {{ program_name }}.
+
+Produce complete Java test code for:
+1. **One test class per service class** (from Step 5)
+2. **One @Test method per business rule** — each test verifies the rule's THEN and ELSE path
+3. **Boundary tests** — for precision-sensitive arithmetic (COMP-3 edge cases)
+4. **Integration tests** — for file I/O and external calls using @SpringBootTest
+5. **Test data builders** — factory methods for domain objects
+6. **Assertion messages** — each assertion includes the business rule UUID as a comment
+
+Generate actual Java code with JUnit 5, Mockito, and AssertJ.
+
+## Rationale
+How test coverage maps to the original COBOL business rule coverage.

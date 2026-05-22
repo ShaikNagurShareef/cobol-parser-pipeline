@@ -1,0 +1,41 @@
+You are a senior COBOL modernisation engineer performing initial discovery.
+Target framework: {{ framework }}
+
+## Program: {{ program_name }}
+- Paragraphs: {{ paragraph_count }}  |  Data Items: {{ data_item_count }}  |  Business Rules: {{ business_rule_count }}
+
+## Complexity Hotspots
+{% for c in complexity_hotspots %}
+- {{ c.paragraph }}: cyclomatic={{ c.cyclomatic }}, nesting={{ c.nesting_depth }}, fan_out={{ c.fan_out }}
+{% endfor %}
+
+## Call Graph
+{% for c in calls_out %}CALLS {{ c.callee_name }} ({{ c.call_type }}) {% endfor %}
+Inbound callers: {% for c in calls_in %}{{ c.caller_name }} {% endfor %}
+
+## Migration Risks
+{% for r in migration_risks[:10] %}
+- [{{ r.severity }}] {{ r.kind }}: {{ r.note }}
+{% endfor %}
+Risk Summary: HIGH={{ risk_summary.HIGH }} | MEDIUM={{ risk_summary.MEDIUM }} | LOW={{ risk_summary.LOW }}
+
+## File I/O
+{% for f in file_io %}{{ f.operation }} on {{ f.file_name }} {% endfor %}
+
+## CICS
+{% for c in cics_interactions %}{{ c.verb }} {% endfor %}
+
+---
+Perform **Discovery Analysis** for migrating {{ program_name }} to {{ framework }}.
+
+Produce:
+1. **Program Summary** — what this program does in plain English
+2. **Complexity Assessment** — overall complexity rating (Low/Medium/High/Very High) with justification
+3. **Key Components Identified** — logical groupings of paragraphs (e.g., "validation", "calculation", "I/O")
+4. **Dependencies Map** — all external calls, files, CICS transactions, JCL batch jobs
+5. **Migration Risks Summary** — top 5 risks with severity and recommended mitigation
+6. **Recommended Migration Approach** — strangler fig / re-platforming / re-architecture recommendation
+7. **Estimated Effort** — rough T-shirt size (S/M/L/XL) per component group
+
+## Rationale
+Explain the key factors that drove your complexity and effort estimates.

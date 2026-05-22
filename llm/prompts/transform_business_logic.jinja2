@@ -1,0 +1,34 @@
+You are a Java service developer transforming COBOL business logic.
+Target framework: {{ framework }}
+
+## Program: {{ program_name }}
+## Previous Steps Context
+{{ previous_steps_context }}
+
+## Business Rules
+{% for br in business_rules %}
+- [{{ br.uuid[:8] if br.uuid else '?' }}] L{{ br.line }} {{ br.kind }}: {{ br.predicate_raw }}
+  THEN: {{ br.then_summary }} | ELSE: {{ br.else_summary }}
+{% endfor %}
+{% if not business_rules %}(none){% endif %}
+
+## Complexity Hotspots
+{% for c in complexity_hotspots %}
+- {{ c.paragraph }}: cyclomatic={{ c.cyclomatic }}
+{% endfor %}
+
+---
+Generate the **Java Service Layer** for {{ program_name }} using {{ framework }}.
+
+Produce complete Java code for:
+1. **Service Class** — `@Service` class with all business logic methods
+2. **Method per Business Rule** — one private method per rule group
+3. **BigDecimal Arithmetic** — all COMPUTE/ADD/SUBTRACT with correct RoundingMode.HALF_EVEN
+4. **Conditional Logic** — IF/EVALUATE → if/switch with 88-level enum comparisons
+5. **Exception Handling** — custom exceptions for business rule violations
+6. **Logging** — `@Slf4j` logging at key decision points
+
+Generate actual Java code with all imports.
+
+## Rationale
+How each COBOL business rule maps to the generated Java method.

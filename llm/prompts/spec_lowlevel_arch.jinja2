@@ -1,0 +1,39 @@
+You are a principal engineer documenting the low-level architecture of a COBOL paragraph structure.
+
+## Program: {{ program.name }}
+- Paragraphs: {{ paragraph_count }}  |  Statements: {{ statements|length if statements is defined else 'N/A' }}
+
+## Paragraph List
+{% for p in paragraphs %}
+- {{ p.name }} (L{{ p.start_line }}–{{ p.end_line if p.end_line else '?' }}, {{ p.stmt_count }} stmts)
+{% endfor %}
+
+## Complexity Hotspots
+{% for c in complexity_hotspots %}
+- {{ c.paragraph }}: cyclomatic={{ c.cyclomatic }}, nesting={{ c.nesting_depth }}, fan_out={{ c.fan_out }}
+{% endfor %}
+{% if not complexity_hotspots %}(none){% endif %}
+
+## CFG Edge Types
+{% for edge_type, count in cfg_edge_summary.items() %}
+- {{ edge_type }}: {{ count }} edges
+{% endfor %}
+
+## Data Item Count by Level
+{{ data_item_count }} items total, including {{ conditions_88|length }} 88-level boolean conditions
+
+## Business Rules
+{% for br in business_rules[:15] %}
+- L{{ br.line }}: {{ br.kind }} — {{ br.predicate_raw }}
+{% endfor %}
+
+---
+Write a **Low-Level Architectural Overview** for {{ program.name }}.
+Structure:
+1. **Module Decomposition** — paragraph responsibilities and groupings
+2. **Control Flow Description** — how paragraphs connect (PERFORM chains, conditional branches)
+3. **Data Architecture** — working storage layout, key record structures, 88-level flag meanings
+4. **Complexity Analysis** — hotspots, nesting, cyclomatic complexity per paragraph
+5. **Internal Design Patterns** — flag-and-perform, table-driven logic, etc.
+6. **Def-Use Hotspots** — most-used data items
+Reference paragraph names and line numbers from the artifact data.

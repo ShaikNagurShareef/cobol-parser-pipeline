@@ -235,13 +235,13 @@
       <svg class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
       Spec Generator
     </div>
-    <div class="nav-item" onclick="navigate('emit')">
+    <div class="nav-item" onclick="navigate('transform')">
       <svg class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
-      Java Emitter
+      Transform
     </div>
-    <div class="nav-item" onclick="navigate('langgraph')">
-      <svg class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
-      LangGraph
+    <div class="nav-item" onclick="navigate('platform')">
+      <svg class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+      Platform Recommender
     </div>
 
     <div class="nav-section">Visualizations</div>
@@ -308,15 +308,94 @@
   <div class="section-sub">Live artifact metrics across all 7 layers of the AWS CardDemo corpus</div>
 
   <!-- Stat cards -->
-  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(175px,1fr));gap:14px;margin-bottom:28px;">
-    <div class="stat-card orange"><div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">Programs</div><div style="font-size:32px;font-weight:700;margin:6px 0;color:#fff;" id="s-programs">—</div><div style="font-size:11px;color:#5ecdd1;">COBOL units</div></div>
-    <div class="stat-card sky"><div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">Paragraphs</div><div style="font-size:32px;font-weight:700;margin:6px 0;color:#fff;" id="s-paragraphs">—</div><div style="font-size:11px;color:var(--ust-sky);">procedure nodes</div></div>
-    <div class="stat-card navy"><div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">Data Items</div><div style="font-size:32px;font-weight:700;margin:6px 0;color:#fff;" id="s-data_items">—</div><div style="font-size:11px;color:#60a5fa;">symbol entries</div></div>
-    <div class="stat-card teal"><div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">Statements</div><div style="font-size:32px;font-weight:700;margin:6px 0;color:#fff;" id="s-statements">—</div><div style="font-size:11px;color:#4DD6F5;">AST nodes</div></div>
-    <div class="stat-card green"><div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">Business Rules</div><div style="font-size:32px;font-weight:700;margin:6px 0;color:#fff;" id="s-business_rules">—</div><div style="font-size:11px;color:#4ade80;">IF/EVALUATE</div></div>
-    <div class="stat-card amber"><div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">Call Edges</div><div style="font-size:32px;font-weight:700;margin:6px 0;color:#fff;" id="s-call_edges">—</div><div style="font-size:11px;color:#fbbf24;">inter-program</div></div>
-    <div class="stat-card red"><div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">Migration Risks</div><div style="font-size:32px;font-weight:700;margin:6px 0;color:#fff;" id="s-risks">—</div><div style="font-size:11px;color:#f87171;">flagged patterns</div></div>
-    <div class="stat-card cyan"><div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">Coverage</div><div style="font-size:32px;font-weight:700;margin:6px 0;color:#fff;" id="s-coverage_pct">—</div><div style="font-size:11px;color:#06b6d4;">parse success</div></div>
+  <div style="margin-bottom:28px;">
+  <!-- Row 1: Core COBOL artifacts -->
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:16px;">
+    <div class="stat-card p1">
+      <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px;">COBOL Programs</div>
+      <div id="s-programs" style="font-size:28px;font-weight:700;color:#5ecdd1;">0</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px;">distinct programs</div>
+    </div>
+    <div class="stat-card p2">
+      <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px;">Paragraphs</div>
+      <div id="s-paragraphs" style="font-size:28px;font-weight:700;color:#5ecdd1;">0</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px;">procedure paragraphs</div>
+    </div>
+    <div class="stat-card p3">
+      <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px;">Data Items</div>
+      <div id="s-data_items" style="font-size:28px;font-weight:700;color:#5ecdd1;">0</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px;"><span id="s-conditions_88">0</span> 88-level conditions</div>
+    </div>
+    <div class="stat-card p4">
+      <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px;">Statements</div>
+      <div id="s-statements" style="font-size:28px;font-weight:700;color:#5ecdd1;">0</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px;"><span id="s-cfg_edges">0</span> CFG edges</div>
+    </div>
+  </div>
+
+  <!-- Row 2: Analysis artifacts -->
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:16px;">
+    <div class="stat-card p5">
+      <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px;">Business Rules</div>
+      <div id="s-business_rules" style="font-size:28px;font-weight:700;color:#4ade80;">0</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px;">extracted rules</div>
+    </div>
+    <div class="stat-card p4">
+      <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px;">Call Edges</div>
+      <div id="s-call_edges" style="font-size:28px;font-weight:700;color:#5ecdd1;">0</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px;">inter-program calls</div>
+    </div>
+    <div class="stat-card p6">
+      <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px;">Migration Risks</div>
+      <div id="s-risks" style="font-size:28px;font-weight:700;color:#fbbf24;">0</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px;">severity-rated</div>
+    </div>
+    <div class="stat-card p3">
+      <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px;">CICS Verbs</div>
+      <div id="s-cics_verbs" style="font-size:28px;font-weight:700;color:#5ecdd1;">0</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px;">tx flow edges</div>
+    </div>
+  </div>
+
+  <!-- Row 3: Source file corpus breakdown -->
+  <div class="card" style="margin-bottom:16px;">
+    <div style="font-weight:600;font-size:13px;margin-bottom:14px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;">Corpus File Breakdown</div>
+    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:12px;">
+      <div style="text-align:center;">
+        <div style="font-size:20px;font-weight:700;color:#5ecdd1;" id="s-cobol_files">0</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:3px;">COBOL<br>.cbl</div>
+      </div>
+      <div style="text-align:center;">
+        <div style="font-size:20px;font-weight:700;color:#60c8fa;" id="s-copybook_files">0</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:3px;">Copybooks<br>.cpy</div>
+      </div>
+      <div style="text-align:center;">
+        <div style="font-size:20px;font-weight:700;color:#fbbf24;" id="s-jcl_files">0</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:3px;">JCL<br>.jcl</div>
+      </div>
+      <div style="text-align:center;">
+        <div style="font-size:20px;font-weight:700;color:#4ade80;" id="s-bms_files">0</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:3px;">BMS Maps<br>.bms</div>
+      </div>
+      <div style="text-align:center;">
+        <div style="font-size:20px;font-weight:700;color:#a78bfa;" id="s-csd_files">0</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:3px;">CSD<br>.csd</div>
+      </div>
+      <div style="text-align:center;">
+        <div style="font-size:20px;font-weight:700;color:#f97316;" id="s-asm_files">0</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:3px;">Assembler<br>.asm</div>
+      </div>
+      <div style="text-align:center;">
+        <div style="font-size:20px;font-weight:700;color:#f87171;" id="s-db2_statements">0</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:3px;">DB2 SQL<br>stmts</div>
+      </div>
+    </div>
+    <!-- Copybook refs + parse coverage -->
+    <div style="display:flex;gap:24px;margin-top:14px;padding-top:14px;border-top:1px solid var(--border);">
+      <div style="font-size:12px;color:var(--muted);">Copybook references: <strong id="s-copybook_refs" style="color:var(--text);">0</strong></div>
+      <div style="font-size:12px;color:var(--muted);">Parse coverage: <strong id="s-coverage_pct" style="color:#4ade80;">0%</strong> (<span id="s-ok_files">0</span>/<span id="s-total_files">0</span> files OK)</div>
+    </div>
+  </div>
   </div>
 
   <!-- Charts -->
@@ -331,34 +410,189 @@
     </div>
   </div>
 
-  <!-- Rubric tracker -->
-  <div class="card">
-    <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">
-      <div style="width:4px;height:22px;background:var(--ust-teal);border-radius:2px;"></div>
-      <div style="font-weight:700;font-size:14px;">Rubric Completion — UST CodeCrafter Championship 2026</div>
+  <!-- Enterprise System Explanation -->
+  <div class="card" style="margin-bottom:20px;">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+      <div style="width:4px;height:28px;background:var(--ust-teal);border-radius:2px;"></div>
+      <div>
+        <div style="font-weight:700;font-size:15px;">What This Platform Does</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:2px;">Enterprise-grade COBOL modernisation intelligence</div>
+      </div>
     </div>
-    <div id="rubric-items"></div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:16px;">
+      <div class="card-sm" style="border-left:3px solid #5ecdd1;">
+        <div style="font-weight:600;font-size:13px;color:#5ecdd1;margin-bottom:6px;">Deep Code Understanding</div>
+        <div style="font-size:12px;color:var(--muted);line-height:1.7;">ProLeap ANTLR4 COBOL parser converts every .CBL file into a typed AST. Seven artifact layers extract paragraphs, data items, CFG edges, def-use chains, business rules, and migration risks — all stored in a queryable SQLite graph database with UUID-stable node identity.</div>
+      </div>
+      <div class="card-sm" style="border-left:3px solid #60c8fa;">
+        <div style="font-weight:600;font-size:13px;color:#60c8fa;margin-bottom:6px;">Multi-Agent Specification Generation</div>
+        <div style="font-size:12px;color:var(--muted);line-height:1.7;">Six LLM personas run in parallel — Business Summary, High-Level Architecture, Low-Level Architecture, Functional Spec, Technical Spec, Modernisation Spec — each grounded against structured artifact slices. No raw COBOL reaches the LLM. Output exports as Markdown and styled PDF.</div>
+      </div>
+      <div class="card-sm" style="border-left:3px solid #d876d6;">
+        <div style="font-weight:600;font-size:13px;color:#d876d6;margin-bottom:6px;">HITL Forward Engineering</div>
+        <div style="font-size:12px;color:var(--muted);line-height:1.7;">Seven-step transformation pipeline (Discovery → Spec → Architecture → Domain Model → Business Logic → Integration → Tests) with Human-in-the-Loop approval at each gate. Auto mode lets the LLM act as HITL reviewer, generating target Java (Spring Boot, Quarkus, etc.) with proper BigDecimal arithmetic.</div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;">
+      <div style="text-align:center;padding:10px;background:var(--surface2);border-radius:6px;">
+        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px;">Pipeline Layers</div>
+        <div style="font-weight:700;color:#5ecdd1;font-size:16px;">7 Layers</div>
+        <div style="font-size:11px;color:var(--muted);">AST → Rules → Quality</div>
+      </div>
+      <div style="text-align:center;padding:10px;background:var(--surface2);border-radius:6px;">
+        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px;">Spec Personas</div>
+        <div style="font-weight:700;color:#60c8fa;font-size:16px;">6 Parallel</div>
+        <div style="font-size:11px;color:var(--muted);">LLM agents in parallel</div>
+      </div>
+      <div style="text-align:center;padding:10px;background:var(--surface2);border-radius:6px;">
+        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px;">Transform Steps</div>
+        <div style="font-weight:700;color:#d876d6;font-size:16px;">7-Step HITL</div>
+        <div style="font-size:11px;color:var(--muted);">Approve/reject each step</div>
+      </div>
+      <div style="text-align:center;padding:10px;background:var(--surface2);border-radius:6px;">
+        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px;">REST Endpoints</div>
+        <div style="font-weight:700;color:#4ade80;font-size:16px;">50+ APIs</div>
+        <div style="font-size:11px;color:var(--muted);">Full OpenAPI docs</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Birds Eye View -->
+  <div class="card" style="margin-bottom:20px;">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+      <div style="width:4px;height:28px;background:#60c8fa;border-radius:2px;"></div>
+      <div>
+        <div style="font-weight:700;font-size:15px;">Birds Eye View — Repository Structure</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:2px;">Complete source breakdown across all component types</div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+      <div>
+        <div style="font-size:12px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;">Source Inventory</div>
+        <div id="birds-eye-inventory" style="display:flex;flex-direction:column;gap:6px;">
+          <div style="color:var(--muted);font-size:13px;">Loading…</div>
+        </div>
+      </div>
+      <div>
+        <div style="font-size:12px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;">Pipeline Flow</div>
+        <div style="display:flex;flex-direction:column;gap:4px;font-size:12px;">
+          <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--surface2);border-radius:4px;border-left:3px solid #5ecdd1;"><span style="color:#5ecdd1;font-weight:600;min-width:24px;">L1</span><span style="color:var(--muted);">ProLeap ANTLR4 → Typed AST + UUID nodes</span></div>
+          <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--surface2);border-radius:4px;border-left:3px solid #55d4eb;"><span style="color:#55d4eb;font-weight:600;min-width:24px;">L2</span><span style="color:var(--muted);">Symbol table, data dictionary, 88-level conditions</span></div>
+          <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--surface2);border-radius:4px;border-left:3px solid #34d399;"><span style="color:#34d399;font-weight:600;min-width:24px;">L3</span><span style="color:var(--muted);">CFG, def-use chains, cyclomatic complexity</span></div>
+          <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--surface2);border-radius:4px;border-left:3px solid #fbbf24;"><span style="color:#fbbf24;font-weight:600;min-width:24px;">L4</span><span style="color:var(--muted);">Call graph, JCL bindings, CICS tx flow</span></div>
+          <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--surface2);border-radius:4px;border-left:3px solid #d876d6;"><span style="color:#d876d6;font-weight:600;min-width:24px;">L5</span><span style="color:var(--muted);">Business rules, arithmetic specs</span></div>
+          <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--surface2);border-radius:4px;border-left:3px solid #60c8fa;"><span style="color:#60c8fa;font-weight:600;min-width:24px;">L6</span><span style="color:var(--muted);">BMS screen maps, CSD catalog, SQL/CICS</span></div>
+          <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--surface2);border-radius:4px;border-left:3px solid #f87171;"><span style="color:#f87171;font-weight:600;min-width:24px;">L7</span><span style="color:var(--muted);">Coverage, dead code, migration risk register</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Knowledge Graph / Source Architecture -->
+  <div class="card">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+      <div style="width:4px;height:28px;background:#d876d6;border-radius:2px;"></div>
+      <div>
+        <div style="font-weight:700;font-size:15px;">Knowledge Graph — Repo Understanding</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:2px;">How every artifact type connects to build complete system intelligence</div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:16px;" id="kg-summary">
+      <div class="card-sm" style="text-align:center;border-top:3px solid #5ecdd1;">
+        <div style="font-size:20px;font-weight:700;color:#5ecdd1;" id="kg-programs">—</div>
+        <div style="font-size:11px;color:var(--muted);">Programs</div>
+      </div>
+      <div class="card-sm" style="text-align:center;border-top:3px solid #34d399;">
+        <div style="font-size:20px;font-weight:700;color:#34d399;" id="kg-cfg">—</div>
+        <div style="font-size:11px;color:var(--muted);">CFG Edges</div>
+      </div>
+      <div class="card-sm" style="text-align:center;border-top:3px solid #fbbf24;">
+        <div style="font-size:20px;font-weight:700;color:#fbbf24;" id="kg-calls">—</div>
+        <div style="font-size:11px;color:var(--muted);">Call Edges</div>
+      </div>
+      <div class="card-sm" style="text-align:center;border-top:3px solid #d876d6;">
+        <div style="font-size:20px;font-weight:700;color:#d876d6;" id="kg-rules">—</div>
+        <div style="font-size:11px;color:var(--muted);">Business Rules</div>
+      </div>
+      <div class="card-sm" style="text-align:center;border-top:3px solid #f87171;">
+        <div style="font-size:20px;font-weight:700;color:#f87171;" id="kg-risks">—</div>
+        <div style="font-size:11px;color:var(--muted);">Migration Risks</div>
+      </div>
+    </div>
+    <div style="font-size:12px;color:var(--muted);line-height:1.8;">
+      <strong style="color:var(--text);">Source Architecture:</strong>
+      Every COBOL program is represented as a graph node with UUID-stable identity. Programs link to paragraphs → statements → data items via parent-child edges. The call graph connects programs via CALL and CICS LINK/XCTL verbs. The CFG graph connects paragraphs via PERFORM, BRANCH_TRUE/FALSE, GOTO, and LOOP_BACK edges. JCL bindings connect job steps to programs and datasets. Business rules connect predicates to the data items they evaluate. This 360° knowledge graph enables AI-grounded spec generation, impact analysis, dead-code detection, and safe refactoring across the entire mainframe estate.
+    </div>
   </div>
 </section>
 
 <!-- ─── PIPELINE ──────────────────────────────────────────────────────────── -->
 <section id="page-pipeline" class="fade-in" style="display:none;">
   <div class="section-title">Run Pipeline</div>
-  <div class="section-sub">Parse the full CardDemo corpus and populate all 7 artifact layers</div>
+  <div class="section-sub">Load a repository via GitHub URL or ZIP upload, then parse all 7 artifact layers</div>
 
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px;">
-    <div class="card">
-      <div style="font-weight:600;margin-bottom:16px;font-size:14px;">Configuration</div>
-      <div style="display:flex;flex-direction:column;gap:12px;">
+  <!-- Source selection -->
+  <div class="card" style="margin-bottom:20px;">
+    <div style="font-weight:600;margin-bottom:14px;font-size:14px;">Repository Source</div>
+    <div class="tabs" id="source-tabs" style="margin-bottom:16px;">
+      <div class="tab active" onclick="switchSourceTab('github')">GitHub URL</div>
+      <div class="tab" onclick="switchSourceTab('zip')">Upload ZIP</div>
+      <div class="tab" onclick="switchSourceTab('local')">Local Path</div>
+    </div>
+
+    <!-- GitHub tab -->
+    <div id="source-github" style="">
+      <div style="display:flex;gap:10px;align-items:flex-end;">
+        <div style="flex:1;">
+          <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px;">GitHub repository URL</label>
+          <input id="github-url" type="text" style="width:100%;" placeholder="https://github.com/aws-samples/aws-mainframe-modernization-carddemo" />
+        </div>
+        <button class="btn btn-secondary" onclick="cloneGithub()" style="white-space:nowrap;height:36px;">
+          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>
+          Clone
+        </button>
+      </div>
+      <div id="clone-log" style="display:none;margin-top:12px;"></div>
+    </div>
+
+    <!-- ZIP upload tab -->
+    <div id="source-zip" style="display:none;">
+      <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:8px;">Upload repository as .zip file</label>
+      <div id="zip-drop-zone" style="border:2px dashed var(--border);border-radius:8px;padding:32px;text-align:center;cursor:pointer;transition:border-color .2s;"
+           onclick="document.getElementById('zip-file-input').click()"
+           ondragover="event.preventDefault();this.style.borderColor='var(--ust-teal)'"
+           ondragleave="this.style.borderColor='var(--border)'"
+           ondrop="handleZipDrop(event)">
+        <svg width="32" height="32" fill="none" stroke="var(--muted)" stroke-width="1.5" viewBox="0 0 24 24" style="margin-bottom:8px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        <div style="font-size:13px;color:var(--muted);">Drag &amp; drop .zip or click to browse</div>
+        <input id="zip-file-input" type="file" accept=".zip" style="display:none;" onchange="uploadZip(this.files[0])"/>
+      </div>
+      <div id="zip-status" style="margin-top:10px;font-size:13px;color:var(--muted);"></div>
+    </div>
+
+    <!-- Local path tab -->
+    <div id="source-local" style="display:none;">
+      <div style="display:flex;flex-direction:column;gap:10px;">
         <div>
-          <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px;">Corpus directory</label>
+          <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px;">Corpus directory (.cbl files)</label>
           <input id="corpus-path" type="text" style="width:100%;" placeholder="external/carddemo/app/cbl" />
         </div>
         <div>
-          <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px;">Copybook directory</label>
+          <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px;">Copybook directory (.cpy files)</label>
           <input id="copybooks-path" type="text" style="width:100%;" placeholder="external/carddemo/app/cpy" />
         </div>
-        <div style="display:flex;gap:10px;margin-top:8px;flex-wrap:wrap;">
+      </div>
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px;">
+    <div class="card">
+      <div style="font-weight:600;margin-bottom:16px;font-size:14px;">Run Pipeline</div>
+      <div style="display:flex;flex-direction:column;gap:12px;">
+        <div id="pipeline-corpus-preview" style="font-size:12px;color:var(--muted);padding:8px 10px;background:var(--surface2);border-radius:4px;display:none;">
+          <span style="color:var(--muted);">Corpus: </span><span id="corpus-preview-path" style="color:#5ecdd1;">—</span>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
           <button class="btn btn-primary" id="run-btn" onclick="runPipeline()">
             <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
             Run Full Pipeline
@@ -479,9 +713,15 @@
   </div>
 
   <div class="card">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
       <div style="font-weight:600;font-size:14px;" id="diag-title">Call Graph</div>
-      <button class="btn btn-secondary" style="font-size:12px;padding:5px 10px;" onclick="copyDiagramSource()">Copy source</button>
+      <div style="display:flex;align-items:center;gap:6px;">
+        <span style="font-size:11px;color:var(--muted);">Zoom:</span>
+        <button class="btn btn-secondary" style="font-size:12px;padding:4px 10px;" onclick="zoomDiagram(1.3)" title="Zoom in">＋</button>
+        <button class="btn btn-secondary" style="font-size:12px;padding:4px 10px;" onclick="zoomDiagram(0.77)" title="Zoom out">－</button>
+        <button class="btn btn-secondary" style="font-size:12px;padding:4px 10px;" onclick="zoomDiagram(1)" title="Reset">⟳</button>
+        <button class="btn btn-secondary" style="font-size:12px;padding:5px 10px;" onclick="copyDiagramSource()">Copy source</button>
+      </div>
     </div>
     <div id="diag-loading" style="text-align:center;padding:40px;color:var(--muted);display:none;">
       <svg class="spin" width="24" height="24" fill="none" stroke="var(--ust-teal2)" stroke-width="2" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
@@ -491,7 +731,7 @@
       No data yet. Run the pipeline first, then generate diagrams:<br>
       <code style="background:var(--surface2);padding:4px 8px;border-radius:4px;font-size:12px;margin-top:8px;display:inline-block;">./run.sh --diagrams</code>
     </div>
-    <div id="diag-render" class="mermaid-wrap"></div>
+    <div id="diag-render" class="mermaid-wrap" style="overflow:auto;min-height:300px;"></div>
     <details style="margin-top:12px;">
       <summary style="font-size:12px;color:var(--muted);cursor:pointer;">View source</summary>
       <pre style="margin-top:8px;"><code id="diag-source" class="language-text"></code></pre>
@@ -501,247 +741,306 @@
 
 <!-- ─── SPEC GENERATOR ────────────────────────────────────────────────────── -->
 <section id="page-spec" class="fade-in" style="display:none;">
-  <div class="section-title">Application Modernization</div>
-  <div class="section-sub">Holistic spec from ANTLR artifacts + per-program LLM-grounded functional specifications</div>
+  <div class="section-title">Spec Generator</div>
+  <div class="section-sub">Multi-agent specification generation — select personas, generate in parallel, export as Markdown or PDF</div>
 
-  <!-- ── Holistic Modernization Report ── -->
-  <div class="card" style="margin-bottom:20px;">
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:20px;">
-      <div style="flex:1;">
-        <div style="font-weight:700;font-size:15px;color:var(--text);margin-bottom:6px;">
-          Holistic Application Modernization Report
+  <div style="display:grid;grid-template-columns:340px 1fr;gap:24px;">
+    <!-- Left panel: controls -->
+    <div>
+      <div class="card" style="margin-bottom:16px;">
+        <div style="font-weight:600;font-size:13px;margin-bottom:12px;">Program</div>
+        <select id="spec-program" style="width:100%;margin-bottom:10px;" onchange="onSpecProgramChange()">
+          <option value="">— select program —</option>
+        </select>
+        <select id="spec-scope" style="width:100%;margin-bottom:10px;" onchange="onSpecScopeChange()">
+          <option value="program">Program scope</option>
+          <option value="paragraph">Paragraph scope</option>
+        </select>
+        <div id="spec-para-row" style="display:none;">
+          <select id="spec-paragraph" style="width:100%;margin-bottom:10px;"></select>
+          <input id="spec-uuid" type="hidden" />
         </div>
-        <div style="font-size:13px;color:var(--muted);line-height:1.6;">
-          Generates a single 10-section report covering the entire CardDemo application:
-          architecture by domain, call graph, CICS transaction flow, JCL batch chain, shared data model,
-          business rules, risk register, and Java package blueprint — all derived from ANTLR-parsed artifacts.
+        <div id="spec-model-row" style="margin-top:8px;">
+          <select id="spec-model" style="width:100%;font-size:12px;"></select>
         </div>
       </div>
-      <div style="display:flex;flex-direction:column;gap:10px;min-width:200px;">
-        <label style="font-size:12px;display:flex;align-items:center;gap:8px;cursor:pointer;color:var(--muted);">
-          <input type="checkbox" id="mod-use-llm" style="accent-color:var(--ust-teal);">
-          Enhance with LLM narrative
+
+      <div class="card" style="margin-bottom:16px;">
+        <div style="font-weight:600;font-size:13px;margin-bottom:12px;">Personas to generate</div>
+        <div id="spec-personas-grid" style="display:flex;flex-direction:column;gap:8px;">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;">
+            <input type="checkbox" id="persona-business_summary" checked style="width:14px;height:14px;">
+            <span>Business Summary</span>
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;">
+            <input type="checkbox" id="persona-highlevel_arch" checked style="width:14px;height:14px;">
+            <span>High-Level Architecture</span>
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;">
+            <input type="checkbox" id="persona-lowlevel_arch" checked style="width:14px;height:14px;">
+            <span>Low-Level Architecture</span>
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;">
+            <input type="checkbox" id="persona-functional_spec" checked style="width:14px;height:14px;">
+            <span>Functional Specification</span>
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;">
+            <input type="checkbox" id="persona-technical_spec" checked style="width:14px;height:14px;">
+            <span>Technical Specification</span>
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;">
+            <input type="checkbox" id="persona-modernization_spec" checked style="width:14px;height:14px;">
+            <span>Modernisation Specification</span>
+          </label>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:10px;">
+          <button class="btn btn-secondary" style="flex:1;font-size:12px;padding:6px 10px;" onclick="toggleAllPersonas(true)">All</button>
+          <button class="btn btn-secondary" style="flex:1;font-size:12px;padding:6px 10px;" onclick="toggleAllPersonas(false)">None</button>
+        </div>
+      </div>
+
+      <button id="spec-btn" class="btn btn-primary" style="width:100%;justify-content:center;margin-bottom:10px;" onclick="generateSpecPersonas()">
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4"/></svg>
+        Generate Specs
+      </button>
+
+      <div id="spec-progress" style="display:none;margin-bottom:12px;">
+        <div style="font-size:12px;color:var(--muted);margin-bottom:6px;" id="spec-progress-msg">Generating…</div>
+        <div class="progress-bar"><div class="progress-fill" id="spec-progress-fill" style="width:0%"></div></div>
+      </div>
+
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-secondary" style="flex:1;font-size:12px;padding:6px 10px;" onclick="exportSpecMd()" id="spec-export-md" disabled>⬇ .md</button>
+        <button class="btn btn-secondary" style="flex:1;font-size:12px;padding:6px 10px;" onclick="exportSpecPdf()" id="spec-export-pdf" disabled>⬇ PDF</button>
+      </div>
+    </div>
+
+    <!-- Right panel: tabbed persona output -->
+    <div class="card" style="min-height:500px;display:flex;flex-direction:column;">
+      <div id="spec-tabs" style="display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid var(--border);margin-bottom:16px;padding-bottom:0;min-height:38px;"></div>
+      <div id="spec-tab-content" style="flex:1;overflow:auto;">
+        <div id="spec-empty-state" style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:300px;color:var(--muted);">
+          <svg width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" style="margin-bottom:12px;opacity:.4;"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          <div>Select a program and click Generate Specs</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Holistic modernization report (kept below) -->
+  <div style="margin-top:24px;" class="card">
+    <div style="font-weight:600;font-size:14px;margin-bottom:4px;">Holistic Modernisation Report</div>
+    <div style="font-size:13px;color:var(--muted);margin-bottom:14px;">Full 10-section report from ANTLR artifacts (all 31 programs)</div>
+    <div style="display:flex;align-items:center;gap:12px;">
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">
+        <input type="checkbox" id="mod-use-llm" style="width:14px;height:14px;"> Enhance with LLM
+      </label>
+      <button id="mod-btn" class="btn btn-secondary" onclick="generateModernizationReport()">Generate Report</button>
+    </div>
+    <div id="mod-progress" style="display:none;margin-top:12px;">
+      <div class="progress-bar"><div class="progress-fill" style="width:60%"></div></div>
+      <div id="mod-progress-msg" style="font-size:12px;color:var(--muted);margin-top:6px;">Building…</div>
+    </div>
+    <div id="mod-result" style="display:none;margin-top:14px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+        <div>
+          <div id="mod-result-title" style="font-weight:600;font-size:13px;"></div>
+          <div id="mod-result-meta" style="font-size:12px;color:var(--muted);"></div>
+        </div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-secondary" style="font-size:12px;padding:6px 12px;" onclick="viewModernizationReport()">View Report</button>
+          <button class="btn btn-secondary" style="font-size:12px;padding:6px 12px;" onclick="copyModernizationReport()">Copy</button>
+        </div>
+      </div>
+      <pre id="mod-preview" style="max-height:400px;overflow:auto;white-space:pre-wrap;font-size:12px;color:var(--muted);"></pre>
+    </div>
+  </div>
+</section>
+
+<!-- ─── TRANSFORM ──────────────────────────────────────────────────────────── -->
+<section id="page-transform" class="fade-in" style="display:none;">
+  <div class="section-title">Forward Engineering — HITL Transform</div>
+  <div class="section-sub">Multi-agent COBOL → Java transformation with Human-in-the-Loop approval at each step</div>
+
+  <!-- Session setup -->
+  <div class="card" style="margin-bottom:20px;" id="transform-setup-card">
+    <div style="display:grid;grid-template-columns:1fr 1fr auto auto auto;gap:12px;align-items:end;">
+      <div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:6px;">COBOL Program</div>
+        <select id="transform-program" style="width:100%;">
+          <option value="">— select program —</option>
+        </select>
+      </div>
+      <div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:6px;">Target Framework</div>
+        <input id="transform-framework" type="text" placeholder="e.g. Spring Boot, Quarkus…" value="Spring Boot" style="width:100%;">
+      </div>
+      <div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:6px;">Auto Mode</div>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;height:36px;">
+          <input type="checkbox" id="transform-auto" style="width:16px;height:16px;">
+          <span style="font-size:13px;">LLM approves</span>
         </label>
-        <button class="btn btn-primary" id="mod-btn" onclick="generateModernizationReport()" style="width:100%;justify-content:center;gap:8px;">
-          <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-          Generate Full Report
-        </button>
       </div>
-    </div>
-
-    <!-- progress -->
-    <div id="mod-progress" style="display:none;margin-top:16px;">
-      <div style="display:flex;align-items:center;gap:10px;">
-        <svg class="spin" width="18" height="18" fill="none" stroke="var(--ust-teal2)" stroke-width="2" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
-        <span id="mod-progress-msg" style="font-size:13px;color:var(--muted);">Building holistic report…</span>
-      </div>
-    </div>
-
-    <!-- result -->
-    <div id="mod-result" style="display:none;margin-top:16px;">
-      <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;background:var(--sidebar-bg);border-radius:8px;border:1px solid var(--border);">
-        <svg width="20" height="20" fill="none" stroke="var(--ust-teal)" stroke-width="2" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-        <div style="flex:1;">
-          <div style="font-weight:600;font-size:13px;color:var(--text);" id="mod-result-title">Report generated</div>
-          <div style="font-size:12px;color:var(--muted);" id="mod-result-meta"></div>
-        </div>
-        <button class="btn btn-secondary" onclick="viewModernizationReport()" style="font-size:12px;padding:5px 12px;">View Report</button>
-        <button class="btn btn-secondary" onclick="copyModernizationReport()" style="font-size:12px;padding:5px 12px;">Copy</button>
-      </div>
-      <!-- inline preview -->
-      <div id="mod-preview" style="margin-top:12px;max-height:400px;overflow-y:auto;background:var(--sidebar-bg);border-radius:8px;border:1px solid var(--border);padding:16px;font-size:13px;line-height:1.7;white-space:pre-wrap;color:var(--text);"></div>
+      <button id="transform-start-btn" class="btn btn-primary" onclick="startTransform()" style="height:36px;">
+        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        Start
+      </button>
+      <button class="btn btn-secondary" onclick="resetTransform()" style="height:36px;font-size:12px;">Reset</button>
     </div>
   </div>
 
-  <!-- ── Per-program LLM Spec Generator ── -->
-  <div style="font-weight:600;font-size:13px;color:var(--muted);margin-bottom:12px;text-transform:uppercase;letter-spacing:0.06em;">Per-Program LLM Spec</div>
-  <div style="display:grid;grid-template-columns:320px 1fr;gap:20px;align-items:start;">
+  <!-- Step progress indicator -->
+  <div id="transform-progress-bar" style="display:none;margin-bottom:20px;" class="card">
+    <div style="font-size:12px;color:var(--muted);margin-bottom:10px;font-weight:600;">TRANSFORMATION PIPELINE</div>
+    <div style="display:flex;align-items:center;gap:0;">
+      <!-- steps injected by JS -->
+      <div id="transform-step-indicators" style="display:flex;align-items:center;gap:0;width:100%;"></div>
+    </div>
+  </div>
+
+  <!-- Active step panel -->
+  <div id="transform-step-panel" style="display:none;">
+    <!-- steps rendered by JS -->
+  </div>
+
+  <!-- Session complete panel -->
+  <div id="transform-complete" style="display:none;" class="card">
+    <div style="font-size:18px;font-weight:700;color:#4ade80;margin-bottom:8px;">&#x2713; Transformation Complete</div>
+    <div style="font-size:13px;color:var(--muted);margin-bottom:16px;">All 7 steps approved. Download the complete output.</div>
+    <div style="display:flex;gap:10px;">
+      <button class="btn btn-primary" onclick="downloadTransformOutput('md')">&#x2B07; Download as Markdown</button>
+      <button class="btn btn-secondary" onclick="downloadTransformOutput('pdf')">&#x2B07; Download as PDF</button>
+    </div>
+  </div>
+</section>
+
+<!-- ─── PLATFORM RECOMMENDER ─────────────────────────────────────────────── -->
+<section id="page-platform" class="fade-in" style="display:none;">
+  <div class="section-title">Target Platform Recommender</div>
+  <div class="section-sub">AI-driven cloud architecture recommendation — analysed from your COBOL artifacts, tuned to your preferred hyperscaler</div>
+
+  <div style="display:grid;grid-template-columns:340px 1fr;gap:20px;">
+
+    <!-- Left: inputs -->
     <div style="display:flex;flex-direction:column;gap:16px;">
+
+      <!-- Program scope -->
       <div class="card">
-        <div style="font-weight:600;margin-bottom:16px;font-size:14px;">Configure</div>
-        <div style="display:flex;flex-direction:column;gap:12px;">
-          <div>
-            <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px;">Program</label>
-            <select id="spec-program" style="width:100%;" onchange="onSpecProgramChange()">
-              <option value="">— select program —</option>
-            </select>
-          </div>
-          <div>
-            <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px;">Scope</label>
-            <select id="spec-scope" style="width:100%;" onchange="onSpecScopeChange()">
-              <option value="program">Program</option>
-              <option value="paragraph">Paragraph</option>
-            </select>
-          </div>
-          <div id="spec-para-wrap" style="display:none;">
-            <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px;">Paragraph</label>
-            <select id="spec-paragraph" style="width:100%;"></select>
-          </div>
-          <div>
-            <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px;">UUID</label>
-            <input id="spec-uuid" type="text" style="width:100%;font-size:12px;" placeholder="auto-filled" readonly />
-          </div>
-          <button class="btn btn-primary" id="spec-btn" onclick="generateSpec()" style="width:100%;justify-content:center;">
-            <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-            Generate Spec
-          </button>
+        <div style="font-weight:600;font-size:13px;margin-bottom:12px;">Source Scope</div>
+        <div style="margin-bottom:10px;">
+          <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px;">Program</label>
+          <select id="plat-program" style="width:100%;" onchange="onPlatProgramChange()">
+            <option value="">— All programs (portfolio view) —</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px;">Analysis scope</label>
+          <select id="plat-scope" style="width:100%;">
+            <option value="portfolio">Full Portfolio Assessment</option>
+            <option value="program">Single Program Deep-Dive</option>
+          </select>
         </div>
       </div>
+
+      <!-- Hyperscaler preference -->
       <div class="card">
-        <div style="font-weight:600;margin-bottom:10px;font-size:13px;">Active Model</div>
-        <div style="font-size:13px;color:var(--ust-sky);font-weight:600;margin-bottom:8px;" id="spec-model-badge">Loading…</div>
-        <div style="font-size:12px;color:var(--muted);margin-bottom:12px;">Change provider and model in Settings.</div>
-        <button onclick="navigate('settings')" class="btn btn-secondary" style="font-size:12px;padding:5px 12px;width:100%;justify-content:center;">
-          <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33"/></svg>
-          Open Settings
-        </button>
+        <div style="font-weight:600;font-size:13px;margin-bottom:12px;">Hyperscaler Preference</div>
+        <div style="display:flex;flex-direction:column;gap:8px;" id="hyperscaler-options">
+          <label style="display:flex;align-items:center;gap:10px;padding:10px;border-radius:6px;border:1px solid var(--border);cursor:pointer;transition:border-color .15s;" id="hs-aws-label">
+            <input type="radio" name="hyperscaler" value="aws" style="accent-color:#ff9900;" checked onchange="onHyperscalerChange(this)">
+            <div>
+              <div style="font-weight:600;font-size:13px;color:#ff9900;">AWS</div>
+              <div style="font-size:11px;color:var(--muted);">Amazon Web Services</div>
+            </div>
+          </label>
+          <label style="display:flex;align-items:center;gap:10px;padding:10px;border-radius:6px;border:1px solid var(--border);cursor:pointer;" id="hs-azure-label">
+            <input type="radio" name="hyperscaler" value="azure" style="accent-color:#0078d4;" onchange="onHyperscalerChange(this)">
+            <div>
+              <div style="font-weight:600;font-size:13px;color:#0078d4;">Azure</div>
+              <div style="font-size:11px;color:var(--muted);">Microsoft Azure</div>
+            </div>
+          </label>
+          <label style="display:flex;align-items:center;gap:10px;padding:10px;border-radius:6px;border:1px solid var(--border);cursor:pointer;" id="hs-gcp-label">
+            <input type="radio" name="hyperscaler" value="gcp" style="accent-color:#4285f4;" onchange="onHyperscalerChange(this)">
+            <div>
+              <div style="font-weight:600;font-size:13px;color:#4285f4;">GCP</div>
+              <div style="font-size:11px;color:var(--muted);">Google Cloud Platform</div>
+            </div>
+          </label>
+          <label style="display:flex;align-items:center;gap:10px;padding:10px;border-radius:6px;border:1px solid var(--border);cursor:pointer;" id="hs-onprem-label">
+            <input type="radio" name="hyperscaler" value="on-prem" style="accent-color:#5ecdd1;" onchange="onHyperscalerChange(this)">
+            <div>
+              <div style="font-weight:600;font-size:13px;color:#5ecdd1;">On-Premises / Hybrid</div>
+              <div style="font-size:11px;color:var(--muted);">OpenShift, VMware, Private Cloud</div>
+            </div>
+          </label>
+        </div>
       </div>
+
+      <!-- Preferences -->
+      <div class="card">
+        <div style="font-weight:600;font-size:13px;margin-bottom:12px;">Modernisation Preferences</div>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          <div>
+            <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px;">Target runtime</label>
+            <select id="plat-runtime" style="width:100%;">
+              <option value="microservices">Microservices (Spring Boot / Quarkus)</option>
+              <option value="serverless">Serverless (Lambda / Cloud Functions)</option>
+              <option value="containers">Containers only (K8s)</option>
+              <option value="paas">PaaS managed services</option>
+              <option value="rehost">Rehost / Lift-and-Shift</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px;">Data strategy</label>
+            <select id="plat-data" style="width:100%;">
+              <option value="managed-sql">Managed SQL (RDS / Azure SQL / Cloud SQL)</option>
+              <option value="nosql">NoSQL / Document (DynamoDB / Cosmos / Firestore)</option>
+              <option value="data-warehouse">Data Warehouse (Redshift / Synapse / BigQuery)</option>
+              <option value="vsam-replacement">VSAM → Managed KV (ElastiCache / Redis)</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px;">Migration priority</label>
+            <select id="plat-priority" style="width:100%;">
+              <option value="speed">Speed to cloud (fastest)</option>
+              <option value="cost">Cost optimisation</option>
+              <option value="risk">Risk reduction (lowest blast radius)</option>
+              <option value="capability">New capabilities (AI/ML, event-driven)</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <button class="btn btn-primary" id="plat-run-btn" onclick="runPlatformRecommender()" style="height:42px;font-size:14px;">
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
+        Generate Recommendation
+      </button>
     </div>
 
-    <div class="card">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
-        <div style="font-weight:600;font-size:14px;">Specification Output</div>
-        <div style="display:flex;gap:8px;align-items:center;">
-          <span id="spec-grounding" style="font-size:12px;color:var(--muted);"></span>
-          <button class="btn btn-secondary" style="font-size:12px;padding:5px 10px;" onclick="copySpec()">Copy</button>
-        </div>
+    <!-- Right: output -->
+    <div id="plat-output-area" style="display:flex;flex-direction:column;gap:16px;">
+      <div class="card" style="text-align:center;padding:60px;color:var(--muted);" id="plat-placeholder">
+        <svg width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" style="margin-bottom:12px;opacity:.4;"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+        <div style="font-size:14px;">Select your preferences and click Generate Recommendation</div>
+        <div style="font-size:12px;margin-top:6px;opacity:.7;">The engine analyses your COBOL artifact store — call graph, data items, CICS verbs, JCL bindings, and migration risks — then maps them to cloud-native services on your preferred hyperscaler.</div>
       </div>
-      <div id="spec-loading" style="text-align:center;padding:60px;display:none;">
+      <div id="plat-loading" style="display:none;text-align:center;padding:40px;" class="card">
         <svg class="spin" width="28" height="28" fill="none" stroke="var(--ust-teal2)" stroke-width="2" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
-        <div style="margin-top:12px;color:var(--muted);font-size:13px;">Calling LLM… this may take 20–30 s</div>
+        <div style="margin-top:10px;font-size:13px;color:var(--muted);" id="plat-loading-msg">Analysing artifacts…</div>
       </div>
-      <div id="spec-output" style="min-height:300px;white-space:pre-wrap;font-size:14px;line-height:1.8;color:var(--text);">
-        <span style="color:var(--muted);">Select a program and click Generate Spec to produce a grounded functional specification.</span>
-      </div>
+      <div id="plat-result" style="display:none;"></div>
     </div>
   </div>
 </section>
 
-<!-- ─── JAVA EMITTER ──────────────────────────────────────────────────────── -->
-<section id="page-emit" class="fade-in" style="display:none;">
-  <div class="section-title">Java Forward Engineering</div>
-  <div class="section-sub">Canonical IR → Java · BigDecimal/RoundingMode for COMP-3 · methods per paragraph</div>
-
-  <div style="display:grid;grid-template-columns:260px 1fr;gap:20px;align-items:start;">
-    <div class="card">
-      <div style="font-weight:600;margin-bottom:14px;font-size:14px;">Select Program</div>
-      <div style="display:flex;flex-direction:column;gap:10px;">
-        <select id="emit-program" style="width:100%;"></select>
-        <button class="btn btn-primary" onclick="emitJava()" style="width:100%;justify-content:center;">
-          <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
-          Emit Java
-        </button>
-        <div id="emit-meta" style="font-size:12px;color:var(--muted);"></div>
-      </div>
-      <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border);">
-        <div style="font-size:12px;color:var(--muted);font-weight:600;margin-bottom:8px;text-transform:uppercase;letter-spacing:.05em;">User Admin Context</div>
-        <div style="display:flex;flex-direction:column;gap:6px;">
-          <button class="btn btn-secondary" style="font-size:12px;width:100%;justify-content:flex-start;" onclick="quickEmit('COUSR01C')">
-            <svg width="12" height="12" fill="var(--ust-teal)" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
-            COUSR01C — User Create
-          </button>
-          <button class="btn btn-secondary" style="font-size:12px;width:100%;justify-content:flex-start;" onclick="quickEmit('COUSR02C')">
-            <svg width="12" height="12" fill="var(--ust-teal)" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
-            COUSR02C — User Update
-          </button>
-          <button class="btn btn-secondary" style="font-size:12px;width:100%;justify-content:flex-start;" onclick="quickEmit('COUSR03C')">
-            <svg width="12" height="12" fill="var(--ust-teal)" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
-            COUSR03C — User Delete
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <div class="card" style="overflow:hidden;">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
-        <div style="font-weight:600;font-size:14px;" id="emit-filename">Java Output</div>
-        <button class="btn btn-secondary" style="font-size:12px;padding:5px 10px;" onclick="copyJava()">Copy</button>
-      </div>
-      <div id="emit-loading" style="text-align:center;padding:60px;display:none;">
-        <svg class="spin" width="28" height="28" fill="none" stroke="var(--ust-teal2)" stroke-width="2" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
-        <div style="margin-top:12px;color:var(--muted);font-size:13px;">Generating Java…</div>
-      </div>
-      <pre id="emit-output" style="max-height:600px;overflow:auto;"><code class="language-java" id="emit-code" style="font-size:12px;">// Select a program and click Emit Java</code></pre>
-    </div>
-  </div>
-</section>
-
-<!-- ─── LANGGRAPH ─────────────────────────────────────────────────────────── -->
+<!-- LangGraph page — empty redirect shell -->
 <section id="page-langgraph" class="fade-in" style="display:none;">
-  <div class="section-title">LangGraph Orchestration</div>
-  <div class="section-sub">Agentic spec-generation state machine — retrieve → build_prompt → generate → ground_check → emit</div>
-
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
-    <div class="card">
-      <div style="font-weight:600;margin-bottom:20px;font-size:14px;">Pipeline State Machine</div>
-      <div style="display:flex;flex-direction:column;gap:0;">
-        <div class="lg-node" style="background:#0d2c30;border:1px solid var(--ust-teal2);color:#a8eef0;">
-          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-          retrieve_artifacts(uuid)
-        </div>
-        <div style="padding-left:28px;color:var(--muted);font-size:22px;line-height:1.2;">↓</div>
-        <div class="lg-node" style="background:#0d2535;border:1px solid var(--ust-sky);color:#60c8fa;">
-          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/></svg>
-          build_prompt(slice)
-        </div>
-        <div style="padding-left:28px;color:var(--muted);font-size:22px;line-height:1.2;">↓</div>
-        <div class="lg-node" style="background:#0d1e2a;border:1px solid var(--ust-sky);color:#93d5f7;">
-          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83"/></svg>
-          generate_spec (OpenAI / Gemini)
-        </div>
-        <div style="padding-left:28px;color:var(--muted);font-size:22px;line-height:1.2;">↓</div>
-        <div class="lg-node" style="background:#0e2e22;border:1px solid #22c55e;color:#4ade80;">
-          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-          ground_check(spec, slice)
-        </div>
-        <div style="padding-left:28px;color:var(--muted);font-size:22px;line-height:1.2;">↓</div>
-        <div class="lg-node" style="background:#2b2008;border:1px solid #f59e0b;color:#fbbf24;">
-          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/></svg>
-          emit_report
-        </div>
-        <div style="padding-left:28px;color:var(--muted);font-size:22px;line-height:1.2;">↓</div>
-        <div class="lg-node" style="background:#1a2530;border:1px solid var(--border);color:var(--muted);">
-          END
-        </div>
-      </div>
-    </div>
-
-    <div class="card">
-      <div style="font-weight:600;margin-bottom:16px;font-size:14px;">Grounding Mechanism</div>
-      <div style="font-size:13px;color:var(--muted);line-height:1.8;margin-bottom:16px;">
-        Every sentence in the generated spec is checked against the artifact slice to ensure it has evidence:
-      </div>
-      <div style="display:flex;flex-direction:column;gap:10px;">
-        <div class="card-sm" style="border-left:3px solid var(--ust-teal);">
-          <div style="font-weight:600;font-size:13px;color:#5ecdd1;margin-bottom:4px;">UUID Reference Check</div>
-          <div style="font-size:12px;color:var(--muted);">Sentence cites a UUID from the artifact slice → grounded</div>
-        </div>
-        <div class="card-sm" style="border-left:3px solid var(--ust-sky);">
-          <div style="font-weight:600;font-size:13px;color:var(--ust-sky);margin-bottom:4px;">COBOL Identifier Check</div>
-          <div style="font-size:12px;color:var(--muted);">Sentence mentions a data item / paragraph name from artifacts → grounded</div>
-        </div>
-        <div class="card-sm" style="border-left:3px solid #f87171;">
-          <div style="font-weight:600;font-size:13px;color:#f87171;margin-bottom:4px;">Ungrounded Flagging</div>
-          <div style="font-size:12px;color:var(--muted);">Sentences with no artifact reference are flagged for manual review</div>
-        </div>
-        <div class="card-sm" style="border-left:3px solid #4ade80;">
-          <div style="font-weight:600;font-size:13px;color:#4ade80;margin-bottom:4px;">Grounding Score</div>
-          <div style="font-size:12px;color:var(--muted);">grounded_sentences / total_sentences — shown in spec output header</div>
-        </div>
-      </div>
-      <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border);">
-        <div style="font-size:12px;color:var(--muted);font-weight:600;margin-bottom:8px;text-transform:uppercase;letter-spacing:.05em;">Artifact Slice Contents</div>
-        <div style="display:flex;flex-wrap:wrap;gap:6px;">
-          <span class="badge badge-orange">paragraph node</span>
-          <span class="badge badge-sky">statements</span>
-          <span class="badge badge-green">data items</span>
-          <span class="badge badge-amber">def-use chains</span>
-          <span class="badge badge-blue">business rules</span>
-          <span class="badge badge-gray">file I/O</span>
-          <span class="badge badge-purple">CFG callers/callees</span>
-        </div>
-      </div>
-    </div>
+  <div class="card" style="text-align:center;padding:40px;">
+    <div style="font-size:15px;font-weight:600;margin-bottom:8px;">This page has been consolidated</div>
+    <div style="font-size:13px;color:var(--muted);margin-bottom:16px;">Multi-agent spec generation is now in the <strong>Spec Generator</strong> page.</div>
+    <button class="btn btn-primary" onclick="navigate('spec')">Go to Spec Generator →</button>
   </div>
 </section>
 

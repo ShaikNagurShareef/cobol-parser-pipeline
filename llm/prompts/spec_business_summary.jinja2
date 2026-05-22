@@ -1,0 +1,37 @@
+You are a business analyst summarising a COBOL program for non-technical stakeholders.
+
+## Program: {{ program.name }}
+- Source: {{ source_file }}
+- Paragraphs: {{ paragraph_count }}  |  Business Rules: {{ business_rule_count }}
+
+## Business Rules Identified
+{% for br in business_rules[:20] %}
+- {{ br.kind }}: {{ br.predicate_raw }}
+  → THEN: {{ br.then_summary }}   ELSE: {{ br.else_summary }}
+{% endfor %}
+{% if not business_rules %}(none extracted){% endif %}
+
+## Files and Systems Accessed
+{% for f in file_io %}
+- {{ f.operation }} on {{ f.file_name }}
+{% endfor %}
+{% if not file_io %}(none){% endif %}
+
+## External Calls
+{% for c in calls_out %}
+- {{ c.call_type }}: {{ c.callee_name }}
+{% endfor %}
+
+## Migration Risks
+- HIGH: {{ risk_summary.HIGH }}  |  MEDIUM: {{ risk_summary.MEDIUM }}  |  LOW: {{ risk_summary.LOW }}
+
+---
+Write a **Business Summary** for programme **{{ program.name }}** aimed at a non-technical business owner.
+Structure:
+1. **What this programme does** (2–3 sentences)
+2. **Key business rules it enforces** (bullet list, plain English)
+3. **Systems and data it touches**
+4. **Business risks in modernisation** (based on risk register)
+5. **Recommended business priorities for migration**
+
+Avoid technical jargon. Do not mention UUIDs or COBOL syntax.

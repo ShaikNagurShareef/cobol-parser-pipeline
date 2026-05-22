@@ -1,0 +1,46 @@
+You are a modernisation architect writing an exhaustive COBOL-to-Java migration specification.
+
+## Program: {{ program.name }}
+- Source: {{ source_file }}
+- Paragraphs: {{ paragraph_count }}  |  Data Items: {{ data_item_count }}  |  Business Rules: {{ business_rule_count }}
+
+## Risk Register
+{% for r in migration_risks %}
+- [{{ r.severity }}] L{{ r.line }}: {{ r.kind }} — {{ r.note }}
+{% endfor %}
+Risk Summary: HIGH={{ risk_summary.HIGH }} | MEDIUM={{ risk_summary.MEDIUM }} | LOW={{ risk_summary.LOW }}
+
+## Complexity Hotspots
+{% for c in complexity_hotspots %}
+- {{ c.paragraph }}: cyclomatic={{ c.cyclomatic }}, nesting={{ c.nesting_depth }}, fan_out={{ c.fan_out }}
+{% endfor %}
+
+## Data Items (key types)
+{% for item in data_items[:30] %}
+- {{ item.name }}: {{ item.canonical_kind }}{% if item.pic %} ({{ item.pic }}){% endif %}
+{% endfor %}
+
+## External Dependencies
+{% for c in calls_out %}
+- Calls: {{ c.callee_name }} ({{ c.call_type }})
+{% endfor %}
+{% for c in cics_interactions %}
+- CICS: {{ c.verb }}{% if c.to_program %} → {{ c.to_program }}{% endif %}
+{% endfor %}
+{% for j in jcl_bindings %}
+- Batch: {{ j.job_name }}/{{ j.dd_name }} → {{ j.dataset_name }}
+{% endfor %}
+
+---
+Write **Exhaustive Modernisation Specifications** for migrating {{ program.name }} to modern Java.
+Structure:
+1. **Migration Strategy** — recommended approach (strangler fig, big bang, etc.) with rationale
+2. **Target Architecture** — Java packages, classes, frameworks recommended
+3. **Data Type Mapping** — COBOL PIC → Java type mappings with precision/scale preservation
+4. **Business Logic Preservation** — how each business rule survives the migration
+5. **Risk Mitigation Plan** — how each HIGH/MEDIUM risk is addressed
+6. **Phased Migration Roadmap** — step-by-step migration plan with dependencies
+7. **Testing Strategy** — how to validate equivalence between COBOL and Java
+8. **Estimated Complexity** — story points or t-shirt sizing per paragraph/component
+9. **Key Decision Points** — architectural choices requiring stakeholder approval
+10. **Definition of Done** — acceptance criteria for migration completion

@@ -1,0 +1,47 @@
+You are a senior solutions architect documenting the high-level architecture of a COBOL system.
+
+## Program: {{ program.name }}
+- Paragraphs: {{ paragraph_count }}  |  Data Items: {{ data_item_count }}
+
+## Call Graph (outbound)
+{% for c in calls_out %}
+- {{ c.call_type }}: {{ c.callee_name }} (resolved={{ c.is_resolved }})
+{% endfor %}
+{% if not calls_out %}(no outbound calls){% endif %}
+
+## Call Graph (inbound callers)
+{% for c in calls_in %}
+- {{ c.caller_name }} via {{ c.call_type }}
+{% endfor %}
+{% if not calls_in %}(no inbound callers){% endif %}
+
+## CICS Interactions
+{% for c in cics_interactions %}
+- {{ c.verb }}{% if c.to_program %} → {{ c.to_program }}{% endif %}{% if c.trans_id %} (TRANSID={{ c.trans_id }}){% endif %}
+{% endfor %}
+{% if not cics_interactions %}(none){% endif %}
+
+## JCL Bindings
+{% for j in jcl_bindings %}
+- Job={{ j.job_name }} DD={{ j.dd_name }} → {{ j.dataset_name }} (COBOL file: {{ j.cobol_logical_file }})
+{% endfor %}
+{% if not jcl_bindings %}(none){% endif %}
+
+## File I/O
+{% for f in file_io %}
+- {{ f.operation }} on {{ f.file_name }}
+{% endfor %}
+
+## Migration Risks
+HIGH={{ risk_summary.HIGH }} | MEDIUM={{ risk_summary.MEDIUM }} | LOW={{ risk_summary.LOW }}
+
+---
+Write a **High-Level Architectural Overview** for {{ program.name }}.
+Structure:
+1. **System Context** — where this program sits in the CardDemo application
+2. **Component Boundaries** — what it owns vs. delegates
+3. **Integration Points** — all external systems, files, CICS transactions
+4. **Call Graph Summary** — who calls this, who it calls, key dependencies
+5. **JCL/Batch Context** — how it fits in batch jobs
+6. **Architectural Concerns** — coupling, cohesion, modernisation impact
+Use a Mermaid `graph LR` diagram to illustrate the component relationships.

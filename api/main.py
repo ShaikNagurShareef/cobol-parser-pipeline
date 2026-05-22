@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import os
 import pathlib
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
+import zipfile
 from typing import AsyncGenerator
 
 # Load .env before anything else
@@ -17,7 +21,7 @@ load_dotenv(pathlib.Path(__file__).parent.parent / ".env")
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -89,6 +93,11 @@ def _get_prog_uuid(con, program_name: str) -> str | None:
             best_score = cfg_count
             best_uuid = uuid
     return best_uuid
+
+
+def _table_exists(con, table_name: str) -> bool:
+    row = con.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?", (table_name,)).fetchone()
+    return row[0] > 0
 
 
 # ── Settings & Model selection ─────────────────────────────────────────────────
@@ -217,35 +226,61 @@ def _default_gemini_models() -> list[str]:
 @app.get("/stats", tags=["Dashboard"])
 def get_stats():
     """Dashboard KPIs: counts across all artifact layers."""
+    _zero = {
+        "programs": 0, "paragraphs": 0, "data_items": 0, "conditions_88": 0,
+        "statements": 0, "business_rules": 0, "call_edges": 0, "cfg_edges": 0,
+        "file_io_ops": 0, "risks": 0, "coverage_pct": 0, "ok_files": 0, "total_files": 0,
+        "cobol_files": 0, "jcl_files": 0, "bms_files": 0, "csd_files": 0,
+        "copybook_files": 0, "asm_files": 0, "db2_statements": 0, "ims_calls": 0,
+        "mq_calls": 0, "cics_verbs": 0, "copybook_refs": 0,
+    }
     if not _db_exists():
-        return {
-            "programs": 0, "paragraphs": 0, "data_items": 0,
-            "statements": 0, "business_rules": 0, "call_edges": 0,
-            "file_io_ops": 0, "risks": 0, "coverage_pct": 0,
-            "ok_files": 0, "total_files": 0,
-        }
+        return _zero
     with _con() as con:
         def cnt(sql, *args):
             return con.execute(sql, args).fetchone()[0]
 
-        programs    = cnt("SELECT COUNT(*) FROM nodes WHERE kind='Program'")
+        programs    = cnt("SELECT COUNT(DISTINCT UPPER(name)) FROM nodes WHERE kind='Program'")
         paragraphs  = cnt("SELECT COUNT(*) FROM nodes WHERE kind='Paragraph'")
         data_items  = cnt("SELECT COUNT(*) FROM data_items")
+        cond_88     = cnt("SELECT COUNT(*) FROM conditions_88")
         statements  = cnt("SELECT COUNT(*) FROM nodes WHERE kind LIKE 'Stmt_%'")
         biz_rules   = cnt("SELECT COUNT(*) FROM business_rules")
         call_edges  = cnt("SELECT COUNT(*) FROM call_graph")
+        cfg_edges   = cnt("SELECT COUNT(*) FROM control_flow")
         file_ops    = cnt("SELECT COUNT(*) FROM file_io")
         risks       = cnt("SELECT COUNT(*) FROM risk_register")
         total_files = cnt("SELECT COUNT(*) FROM parse_coverage")
         ok_files    = cnt("SELECT COUNT(*) FROM parse_coverage WHERE status='OK'")
         cov_pct     = round(100 * ok_files / max(total_files, 1), 1)
+        copybook_refs = cnt("SELECT COUNT(*) FROM copybook_use")
+        cics_verbs  = cnt("SELECT COUNT(*) FROM transaction_flow")
+        # DB2/IMS/MQ: count from db_io and nodes payload patterns
+        db2_stmts   = cnt("SELECT COUNT(*) FROM db_io") if _table_exists(con, "db_io") else 0
+        ims_calls   = cnt("SELECT COUNT(*) FROM nodes WHERE kind='Stmt_EXEC_IMS'") if False else 0
+        mq_calls    = cnt("SELECT COUNT(*) FROM nodes WHERE kind='Stmt_EXEC_MQ'") if False else 0
+        # Per file-type counts from parse_coverage
+        cobol_files = cnt("SELECT COUNT(*) FROM parse_coverage WHERE source_file LIKE '%.cbl' OR source_file LIKE '%.CBL'")
+        jcl_files   = cnt("SELECT COUNT(*) FROM parse_coverage WHERE source_file LIKE '%.jcl' OR source_file LIKE '%.JCL'")
+        bms_files   = cnt("SELECT COUNT(*) FROM parse_coverage WHERE source_file LIKE '%.bms' OR source_file LIKE '%.BMS'")
+        csd_files   = cnt("SELECT COUNT(*) FROM parse_coverage WHERE source_file LIKE '%.csd' OR source_file LIKE '%.CSD' OR (source_file LIKE '%.txt' AND source_file NOT LIKE '%.cbl')")
+        # Copybooks: .cpy files
+        cpy_files   = cnt("SELECT COUNT(*) FROM parse_coverage WHERE source_file LIKE '%.cpy' OR source_file LIKE '%.CPY'")
+        # Assembler: .asm / .s / .hlasm files
+        asm_files   = cnt("SELECT COUNT(*) FROM parse_coverage WHERE source_file LIKE '%.asm' OR source_file LIKE '%.ASM' OR source_file LIKE '%.hlasm' OR source_file LIKE '%.HLASM' OR source_file LIKE '%.s'")
 
     return {
         "programs": programs, "paragraphs": paragraphs,
-        "data_items": data_items, "statements": statements,
-        "business_rules": biz_rules, "call_edges": call_edges,
+        "data_items": data_items, "conditions_88": cond_88,
+        "statements": statements, "business_rules": biz_rules,
+        "call_edges": call_edges, "cfg_edges": cfg_edges,
         "file_io_ops": file_ops, "risks": risks,
         "coverage_pct": cov_pct, "ok_files": ok_files, "total_files": total_files,
+        "cobol_files": cobol_files, "jcl_files": jcl_files,
+        "bms_files": bms_files, "csd_files": csd_files,
+        "copybook_files": cpy_files, "asm_files": asm_files,
+        "db2_statements": db2_stmts, "ims_calls": ims_calls, "mq_calls": mq_calls,
+        "cics_verbs": cics_verbs, "copybook_refs": copybook_refs,
     }
 
 
@@ -860,6 +895,243 @@ def generate_spec_endpoint(body: dict):
         raise HTTPException(500, str(exc))
 
 
+# ── Multi-persona spec generation ─────────────────────────────────────────────
+
+_PERSONA_LABELS = {
+    "business_summary":   "Business Summary",
+    "highlevel_arch":     "High-Level Architecture",
+    "lowlevel_arch":      "Low-Level Architecture",
+    "functional_spec":    "Functional Specification",
+    "technical_spec":     "Technical Specification",
+    "modernization_spec": "Modernisation Specification",
+}
+
+@app.post("/generate-spec/personas", tags=["LLM"])
+async def generate_spec_personas(body: dict):
+    """Run multiple spec personas in parallel and stream results."""
+    program_name = body.get("program_name", "")
+    scope = body.get("scope", "program")
+    uuid_ = body.get("uuid", "")
+    personas: list[str] = body.get("personas", list(_PERSONA_LABELS.keys()))
+    model = body.get("model")
+
+    if not program_name and not uuid_:
+        raise HTTPException(400, "program_name or uuid required")
+
+    if model:
+        provider = os.environ.get("LLM_PROVIDER", "openai").lower()
+        if provider == "openai":
+            os.environ["OPENAI_MODEL"] = model
+        elif provider == "gemini":
+            os.environ["GEMINI_MODEL"] = model
+
+    async def _stream():
+        import concurrent.futures
+        from llm.multi_agent import generate_persona_spec
+
+        yield f"data: {json.dumps({'event': 'start', 'personas': personas, 'total': len(personas)})}\n\n"
+        await asyncio.sleep(0)
+
+        loop = asyncio.get_event_loop()
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(personas), 4)) as pool:
+            futures = {
+                loop.run_in_executor(pool, generate_persona_spec, persona, program_name, scope, uuid_): persona
+                for persona in personas
+            }
+            for fut in asyncio.as_completed(futures):
+                persona = futures[fut]
+                try:
+                    result = await fut
+                    yield f"data: {json.dumps({'event': 'persona_done', 'persona': persona, 'label': _PERSONA_LABELS.get(persona, persona), 'content': result['content'], 'grounding_score': result.get('grounding_score', 0)})}\n\n"
+                except Exception as exc:
+                    yield f"data: {json.dumps({'event': 'persona_error', 'persona': persona, 'error': str(exc)})}\n\n"
+                await asyncio.sleep(0)
+
+        yield f"data: {json.dumps({'event': 'all_done'})}\n\n"
+
+    return StreamingResponse(_stream(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@app.post("/specs/export/pdf", tags=["LLM"])
+def export_spec_pdf(body: dict):
+    """Render markdown spec content to a properly styled PDF via WeasyPrint."""
+    content = body.get("content", "")
+    title   = body.get("title", "COBOL Modernisation Specification")
+    if not content:
+        raise HTTPException(400, "content required")
+    try:
+        import markdown as md_lib
+        from weasyprint import HTML as WP_HTML, CSS
+        html_body = md_lib.markdown(content, extensions=["tables", "fenced_code", "toc"])
+        full_html = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<title>{title}</title>
+<style>
+  @page {{ margin: 2cm; @top-center {{ content: "{title}"; font-size: 9pt; color: #666; }} @bottom-right {{ content: counter(page) " / " counter(pages); font-size: 9pt; color: #666; }} }}
+  body {{ font-family: 'Helvetica Neue', Arial, sans-serif; font-size: 10pt; line-height: 1.6; color: #1a1a2e; }}
+  h1 {{ font-size: 20pt; color: #006e74; border-bottom: 2px solid #006e74; padding-bottom: 6pt; margin-top: 18pt; }}
+  h2 {{ font-size: 14pt; color: #0097ab; border-bottom: 1px solid #e0e0e0; padding-bottom: 3pt; margin-top: 14pt; }}
+  h3 {{ font-size: 11pt; color: #003c51; margin-top: 10pt; }}
+  code {{ background: #f4f4f4; padding: 1pt 4pt; border-radius: 3pt; font-family: 'Courier New', monospace; font-size: 9pt; }}
+  pre {{ background: #f4f4f4; padding: 10pt; border-radius: 5pt; border-left: 3pt solid #006e74; overflow: hidden; white-space: pre-wrap; }}
+  table {{ border-collapse: collapse; width: 100%; margin: 10pt 0; font-size: 9pt; }}
+  th {{ background: #006e74; color: white; padding: 5pt 8pt; text-align: left; }}
+  td {{ border: 1pt solid #ddd; padding: 4pt 8pt; }}
+  tr:nth-child(even) {{ background: #f9f9f9; }}
+  blockquote {{ border-left: 4pt solid #0097ab; padding-left: 12pt; color: #555; margin: 8pt 0; }}
+  .toc {{ background: #f0f8ff; padding: 12pt; border: 1pt solid #cce; border-radius: 5pt; margin: 12pt 0; }}
+</style>
+</head><body>
+<h1 style="font-size:22pt;text-align:center;border:none;color:#003c51;">{title}</h1>
+<p style="text-align:center;color:#666;font-size:9pt;">Generated by UST CodeCrafter COBOL Modernisation Pipeline</p>
+<hr style="border:1pt solid #006e74;margin:12pt 0;">
+{html_body}
+</body></html>"""
+        from io import BytesIO
+        buf = BytesIO()
+        WP_HTML(string=full_html).write_pdf(buf)
+        buf.seek(0)
+        from fastapi.responses import Response
+        return Response(
+            content=buf.read(),
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{title.replace(" ", "_")}.pdf"'},
+        )
+    except ImportError as e:
+        raise HTTPException(501, f"PDF export requires weasyprint and markdown: pip install weasyprint markdown — {e}")
+    except Exception as exc:
+        raise HTTPException(500, str(exc))
+
+
+# ── Multi-agent Forward Engineering (HITL Transform) ─────────────────────────
+
+_transform_sessions: dict[str, dict] = {}
+
+TRANSFORM_STEPS = [
+    {"id": 0, "name": "Discovery",     "agent": "DiscoveryAgent",     "description": "Analyse all parsed artifacts for the program"},
+    {"id": 1, "name": "Specification", "agent": "SpecAgent",          "description": "Generate functional & technical specifications"},
+    {"id": 2, "name": "Architecture",  "agent": "ArchitectAgent",     "description": "Design target Java package and class structure"},
+    {"id": 3, "name": "Domain Model",  "agent": "DomainAgent",        "description": "Map COBOL data items to Java entities and DTOs"},
+    {"id": 4, "name": "Business Logic","agent": "BusinessLogicAgent", "description": "Transform business rules to Java service methods"},
+    {"id": 5, "name": "Integration",   "agent": "IntegrationAgent",   "description": "Map file I/O and CICS to repositories and REST clients"},
+    {"id": 6, "name": "Tests",         "agent": "TestAgent",          "description": "Generate JUnit 5 test cases from business rules"},
+]
+
+
+@app.post("/transform/sessions", tags=["Transform"])
+def create_transform_session(body: dict):
+    """Create a new HITL transformation session."""
+    import uuid as _uuid
+    if not _db_exists():
+        raise HTTPException(400, "No pipeline database — run the pipeline first.")
+    program_name = body.get("program_name", "")
+    framework    = body.get("framework", "Spring Boot")
+    auto_mode    = body.get("auto_mode", False)
+    if not program_name:
+        raise HTTPException(400, "program_name required")
+    session_id = str(_uuid.uuid4())[:8]
+    _transform_sessions[session_id] = {
+        "session_id": session_id,
+        "program_name": program_name,
+        "framework": framework,
+        "auto_mode": auto_mode,
+        "status": "pending",
+        "current_step": 0,
+        "steps": [
+            {**s, "status": "pending", "output": None, "rationale": None, "approved": False, "feedback": None}
+            for s in TRANSFORM_STEPS
+        ],
+        "created_at": time.time(),
+    }
+    return {"session_id": session_id, "program_name": program_name, "framework": framework, "steps": TRANSFORM_STEPS}
+
+
+@app.get("/transform/sessions/{session_id}", tags=["Transform"])
+def get_transform_session(session_id: str):
+    if session_id not in _transform_sessions:
+        raise HTTPException(404, "Session not found")
+    return _transform_sessions[session_id]
+
+
+@app.post("/transform/sessions/{session_id}/steps/{step_id}/run", tags=["Transform"])
+def run_transform_step(session_id: str, step_id: int):
+    """Run a single transformation step using the LLM agent."""
+    if session_id not in _transform_sessions:
+        raise HTTPException(404, "Session not found")
+    session = _transform_sessions[session_id]
+    if step_id < 0 or step_id >= len(TRANSFORM_STEPS):
+        raise HTTPException(400, f"step_id must be 0-{len(TRANSFORM_STEPS)-1}")
+    step = session["steps"][step_id]
+    if step["approved"]:
+        return {"ok": True, "already_approved": True, "output": step["output"]}
+
+    session["status"] = "running"
+    step["status"] = "running"
+    try:
+        from llm.multi_agent import run_transform_step as _run_step
+        with _con() as con:
+            result = _run_step(
+                step_id=step_id,
+                program_name=session["program_name"],
+                framework=session["framework"],
+                previous_steps=session["steps"][:step_id],
+                con=con,
+            )
+        step["output"]    = result["output"]
+        step["rationale"] = result.get("rationale", "")
+        step["status"]    = "awaiting_approval"
+        session["status"] = "awaiting_approval"
+        session["current_step"] = step_id
+        if session["auto_mode"]:
+            step["approved"] = True
+            step["status"]   = "approved"
+            session["current_step"] = step_id + 1
+            if step_id == len(TRANSFORM_STEPS) - 1:
+                session["status"] = "complete"
+        return {"ok": True, "step_id": step_id, "output": step["output"], "rationale": step["rationale"], "auto_approved": session["auto_mode"]}
+    except Exception as exc:
+        step["status"]    = "error"
+        session["status"] = "error"
+        raise HTTPException(500, str(exc))
+
+
+@app.post("/transform/sessions/{session_id}/steps/{step_id}/approve", tags=["Transform"])
+def approve_transform_step(session_id: str, step_id: int, body: dict = {}):
+    if session_id not in _transform_sessions:
+        raise HTTPException(404, "Session not found")
+    session = _transform_sessions[session_id]
+    step = session["steps"][step_id]
+    step["approved"] = True
+    step["status"]   = "approved"
+    step["feedback"] = body.get("feedback", "")
+    next_step = step_id + 1
+    if next_step < len(TRANSFORM_STEPS):
+        session["current_step"] = next_step
+        session["status"] = "pending"
+    else:
+        session["status"] = "complete"
+    return {"ok": True, "next_step": next_step if next_step < len(TRANSFORM_STEPS) else None}
+
+
+@app.post("/transform/sessions/{session_id}/steps/{step_id}/reject", tags=["Transform"])
+def reject_transform_step(session_id: str, step_id: int, body: dict = {}):
+    if session_id not in _transform_sessions:
+        raise HTTPException(404, "Session not found")
+    session = _transform_sessions[session_id]
+    step = session["steps"][step_id]
+    step["approved"] = False
+    step["status"]   = "rejected"
+    step["feedback"] = body.get("feedback", "")
+    session["status"] = "pending"
+    return {"ok": True, "message": "Step rejected — you may re-run it after updating feedback"}
+
+
+@app.get("/transform/sessions", tags=["Transform"])
+def list_transform_sessions():
+    return {"sessions": [{"session_id": s["session_id"], "program_name": s["program_name"], "framework": s["framework"], "status": s["status"]} for s in _transform_sessions.values()]}
+
+
 # ── Modernization report (batch spec generation) ──────────────────────────────
 
 @app.post("/generate-modernization-report", tags=["LLM"])
@@ -1007,6 +1279,124 @@ async def cancel_pipeline():
         _pipeline_proc.terminate()
         return {"ok": True, "msg": "Pipeline cancelled"}
     return {"ok": False, "msg": "No pipeline running"}
+
+
+@app.post("/pipeline/clone-github", tags=["Pipeline"])
+async def clone_github_repo(body: dict = {}):
+    """Clone a GitHub repository and auto-detect COBOL/JCL/BMS/CSD paths."""
+    repo_url: str = body.get("url", "").strip()
+    if not repo_url:
+        raise HTTPException(status_code=400, detail="url is required")
+
+    # Derive a short name from the URL
+    repo_name = repo_url.rstrip("/").split("/")[-1].removesuffix(".git")
+    dest = PROJECT_ROOT / "external" / repo_name
+
+    async def stream() -> AsyncGenerator[str, None]:
+        def fmt(msg: str, kind: str = "log") -> str:
+            return f"data: {json.dumps({'kind': kind, 'msg': msg, 'ts': time.time()})}\n\n"
+
+        yield fmt(f"Cloning {repo_url} → external/{repo_name} …", "start")
+
+        if dest.exists():
+            yield fmt(f"Destination exists — pulling latest…", "info")
+            proc = await asyncio.create_subprocess_exec(
+                "git", "-C", str(dest), "pull", "--ff-only",
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
+            )
+        else:
+            proc = await asyncio.create_subprocess_exec(
+                "git", "clone", "--depth=1", repo_url, str(dest),
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
+            )
+        async for raw in proc.stdout:
+            line = raw.decode(errors="replace").rstrip()
+            if line:
+                yield fmt(line, "log")
+        await proc.wait()
+        if proc.returncode != 0:
+            yield fmt(f"git exited with code {proc.returncode}", "error")
+            yield fmt("DONE", "done")
+            return
+
+        # Auto-detect COBOL corpus paths
+        corpus = _find_first_dir(dest, [
+            "app/cbl", "src/cbl", "cobol", "cbl", "src/main/cobol",
+        ])
+        copybooks = _find_first_dir(dest, [
+            "app/cpy", "src/cpy", "copybooks", "cpy",
+        ])
+        result = {
+            "repo": str(dest),
+            "corpus": str(corpus) if corpus else "",
+            "copybooks": str(copybooks) if copybooks else "",
+        }
+        yield fmt(f"Detected corpus: {result['corpus'] or '(none found)'}", "info")
+        yield fmt(f"Detected copybooks: {result['copybooks'] or '(none found)'}", "info")
+        yield fmt(json.dumps(result), "result")
+        yield fmt("DONE", "done")
+
+    return StreamingResponse(stream(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@app.post("/pipeline/upload-zip", tags=["Pipeline"])
+async def upload_zip(file: UploadFile = File(...)):
+    """Accept a ZIP archive, extract it to external/, auto-detect COBOL paths."""
+    if not file.filename.endswith(".zip"):
+        raise HTTPException(status_code=400, detail="Only .zip files are accepted")
+
+    repo_name = pathlib.Path(file.filename).stem
+    dest = PROJECT_ROOT / "external" / repo_name
+
+    content = await file.read()
+    try:
+        with zipfile.ZipFile(io.BytesIO(content)) as zf:
+            # Determine common prefix to strip
+            names = zf.namelist()
+            prefix = _common_prefix(names)
+            dest.mkdir(parents=True, exist_ok=True)
+            for member in zf.infolist():
+                rel = member.filename[len(prefix):]
+                if not rel:
+                    continue
+                out_path = dest / rel
+                if member.is_dir():
+                    out_path.mkdir(parents=True, exist_ok=True)
+                else:
+                    out_path.parent.mkdir(parents=True, exist_ok=True)
+                    out_path.write_bytes(zf.read(member.filename))
+    except zipfile.BadZipFile as exc:
+        raise HTTPException(status_code=400, detail=f"Bad ZIP file: {exc}")
+
+    corpus = _find_first_dir(dest, ["app/cbl", "src/cbl", "cobol", "cbl"])
+    copybooks = _find_first_dir(dest, ["app/cpy", "src/cpy", "copybooks", "cpy"])
+    return {
+        "ok": True,
+        "repo": str(dest),
+        "corpus": str(corpus) if corpus else "",
+        "copybooks": str(copybooks) if copybooks else "",
+        "files_extracted": len([n for n in zf.namelist() if not n.endswith("/")]) if False else None,
+    }
+
+
+def _find_first_dir(base: pathlib.Path, candidates: list[str]) -> pathlib.Path | None:
+    for c in candidates:
+        p = base / c
+        if p.is_dir():
+            return p
+    return None
+
+
+def _common_prefix(names: list[str]) -> str:
+    if not names:
+        return ""
+    parts = names[0].split("/")
+    prefix = parts[0] + "/" if len(parts) > 1 else ""
+    for n in names[1:]:
+        if not n.startswith(prefix):
+            return ""
+    return prefix
 
 
 # ── Health ────────────────────────────────────────────────────────────────────
@@ -1196,12 +1586,12 @@ def layer5_business_rules(limit: int = Query(100), program: str = Query("")):
 
 @app.get("/layers/6/bms-maps", tags=["Layer Explorer"])
 def layer6_bms_maps(limit: int = Query(100)):
-    """Layer 6: Browse BMS screen maps and fields."""
+    """Layer 6: Browse BMS screen maps and fields (deduplicated)."""
     if not _db_exists():
         return []
     with _con() as con:
         rows = con.execute(
-            """SELECT map_name, mapset_name, field_name, position_row, position_col,
+            """SELECT DISTINCT map_name, mapset_name, field_name, position_row, position_col,
                       length, attributes
                FROM screen_map ORDER BY map_name, position_row, position_col LIMIT ?""",
             (limit,),
@@ -1216,7 +1606,9 @@ def layer6_csd(limit: int = Query(100)):
         return []
     with _con() as con:
         rows = con.execute(
-            "SELECT * FROM csd_catalog ORDER BY resource_type, name LIMIT ?",
+            """SELECT id, kind AS resource_type, name,
+                      group_name, attributes
+               FROM csd_catalog ORDER BY kind, name LIMIT ?""",
             (limit,),
         ).fetchall()
     return _rows_to_list(rows)
@@ -1260,6 +1652,227 @@ def list_jcl_jobs(limit: int = Query(100)):
             (limit,),
         ).fetchall()
     return _rows_to_list(rows)
+
+
+# ── Platform Recommender ─────────────────────────────────────────────────────
+
+_HYPERSCALER_SERVICES = {
+    "aws": {
+        "compute": "AWS Lambda / ECS Fargate / EKS",
+        "database": "Amazon RDS (Aurora) / DynamoDB / Redshift",
+        "messaging": "Amazon SQS / SNS / EventBridge / MSK (Kafka)",
+        "storage": "Amazon S3 / EFS / EBS",
+        "cics_replacement": "AWS Step Functions + API Gateway",
+        "batch": "AWS Batch / Step Functions",
+        "monitoring": "CloudWatch / X-Ray / AWS Config",
+        "ci_cd": "AWS CodePipeline / CodeBuild / CodeDeploy",
+        "migration_service": "AWS Mainframe Modernization (M2)",
+    },
+    "azure": {
+        "compute": "Azure Functions / AKS / Container Apps",
+        "database": "Azure SQL / Cosmos DB / Synapse Analytics",
+        "messaging": "Azure Service Bus / Event Hubs / Event Grid",
+        "storage": "Azure Blob Storage / Data Lake",
+        "cics_replacement": "Azure Logic Apps + APIM",
+        "batch": "Azure Batch / Durable Functions",
+        "monitoring": "Azure Monitor / Application Insights",
+        "ci_cd": "Azure DevOps / GitHub Actions",
+        "migration_service": "Azure Migrate + App Service Migration Assistant",
+    },
+    "gcp": {
+        "compute": "Cloud Run / GKE / Cloud Functions",
+        "database": "Cloud SQL / Firestore / BigQuery / Spanner",
+        "messaging": "Pub/Sub / Eventarc / Dataflow",
+        "storage": "Cloud Storage / Filestore",
+        "cics_replacement": "Cloud Endpoints + Workflows",
+        "batch": "Cloud Batch / Dataflow",
+        "monitoring": "Cloud Monitoring / Cloud Trace / Cloud Logging",
+        "ci_cd": "Cloud Build / Cloud Deploy / Artifact Registry",
+        "migration_service": "Google Cloud Mainframe Modernization API",
+    },
+    "on-prem": {
+        "compute": "OpenShift / Kubernetes / VMware Tanzu",
+        "database": "PostgreSQL / MariaDB / Oracle on-prem",
+        "messaging": "Apache Kafka / ActiveMQ / RabbitMQ",
+        "storage": "NetApp / Dell EMC / Ceph",
+        "cics_replacement": "IBM WebSphere / JBoss / Quarkus REST",
+        "batch": "Spring Batch / Quartz Scheduler",
+        "monitoring": "Prometheus / Grafana / ELK Stack",
+        "ci_cd": "Jenkins / GitLab CI / Nexus",
+        "migration_service": "Micro Focus Enterprise / Broadcom CA7",
+    },
+}
+
+
+@app.post("/platform/recommend", tags=["Platform Recommender"])
+async def platform_recommend(body: dict = {}):
+    """Stream a cloud architecture recommendation grounded in COBOL artifacts."""
+    hyperscaler: str = body.get("hyperscaler", "aws")
+    program_name: str = body.get("program", "")
+    runtime: str = body.get("runtime", "microservices")
+    data_strategy: str = body.get("data_strategy", "managed-sql")
+    priority: str = body.get("priority", "speed")
+    scope: str = body.get("scope", "portfolio")
+
+    services = _HYPERSCALER_SERVICES.get(hyperscaler, _HYPERSCALER_SERVICES["aws"])
+
+    async def stream() -> AsyncGenerator[str, None]:
+        def fmt(msg: str, kind: str = "chunk") -> str:
+            return f"data: {json.dumps({'kind': kind, 'msg': msg})}\n\n"
+
+        if not _db_exists():
+            yield fmt("Pipeline has not been run yet. Run the pipeline first.", "error")
+            yield fmt("", "done")
+            return
+
+        # Gather artifact context
+        with _con() as con:
+            prog_count = con.execute(
+                "SELECT COUNT(DISTINCT UPPER(name)) FROM nodes WHERE kind='Program'"
+            ).fetchone()[0]
+            data_items = con.execute("SELECT COUNT(*) FROM data_items").fetchone()[0]
+            business_rules = con.execute("SELECT COUNT(*) FROM business_rules").fetchone()[0]
+            call_edges = con.execute("SELECT COUNT(*) FROM call_graph").fetchone()[0]
+            cfg_edges = con.execute("SELECT COUNT(*) FROM control_flow").fetchone()[0]
+            risks_high = con.execute(
+                "SELECT COUNT(*) FROM risk_register WHERE severity='HIGH'"
+            ).fetchone()[0]
+            risks_med = con.execute(
+                "SELECT COUNT(*) FROM risk_register WHERE severity='MEDIUM'"
+            ).fetchone()[0]
+            cics_verbs = con.execute("SELECT COUNT(*) FROM transaction_flow").fetchone()[0]
+            jcl_jobs = con.execute(
+                "SELECT COUNT(DISTINCT job_name) FROM jcl_job"
+            ).fetchone()[0]
+            file_io = con.execute("SELECT COUNT(DISTINCT file_name) FROM file_io").fetchone()[0]
+            top_risks = con.execute(
+                """SELECT DISTINCT kind, COUNT(*) AS cnt FROM risk_register
+                   GROUP BY kind ORDER BY cnt DESC LIMIT 5"""
+            ).fetchall()
+
+            # Program-specific context if requested
+            prog_detail = ""
+            if program_name and scope == "program":
+                prog_uuid = _get_prog_uuid(con, program_name)
+                if prog_uuid:
+                    paragraphs = con.execute(
+                        "SELECT COUNT(*) FROM nodes WHERE kind='Paragraph' AND parent_uuid=?",
+                        (prog_uuid,),
+                    ).fetchone()[0]
+                    prog_rules = con.execute(
+                        "SELECT COUNT(*) FROM business_rules WHERE program_uuid=?",
+                        (prog_uuid,),
+                    ).fetchone()[0]
+                    prog_risks = con.execute(
+                        "SELECT kind, severity FROM risk_register WHERE program_uuid=? ORDER BY severity LIMIT 5",
+                        (prog_uuid,),
+                    ).fetchall()
+                    prog_detail = (
+                        f"\n\nProgram '{program_name}': {paragraphs} paragraphs, "
+                        f"{prog_rules} business rules, "
+                        f"{len(prog_risks)} risks: {', '.join(f'{r[0]}({r[1]})' for r in prog_risks)}"
+                    )
+
+        risk_summary = ", ".join(f"{r[0]}×{r[1]}" for r in top_risks) if top_risks else "none detected"
+
+        from llm.multi_agent import _call_llm
+
+        prompt = f"""You are a cloud architecture expert specialising in mainframe modernisation.
+
+COBOL PORTFOLIO ANALYSIS (from 7-layer artifact pipeline):
+- Programs: {prog_count} | Data items: {data_items:,} | Paragraphs: via CFG ({cfg_edges:,} edges)
+- Business rules: {business_rules} | Call graph edges: {call_edges}
+- CICS transaction verbs: {cics_verbs} | JCL job definitions: {jcl_jobs}
+- Logical files (VSAM/flat): {file_io}
+- Migration risks: HIGH={risks_high}, MEDIUM={risks_med} — top kinds: {risk_summary}{prog_detail}
+
+USER PREFERENCES:
+- Target hyperscaler: {hyperscaler.upper()}
+- Target runtime: {runtime}
+- Data strategy: {data_strategy}
+- Migration priority: {priority}
+- Scope: {scope}
+
+AVAILABLE {hyperscaler.upper()} SERVICES:
+{json.dumps(services, indent=2)}
+
+Generate a structured Target Platform Architecture Recommendation with these sections:
+
+## 1. Executive Summary
+One paragraph — business case for this modernisation approach given the portfolio complexity.
+
+## 2. Recommended Architecture Pattern
+Name the pattern (e.g. "Strangler Fig to Microservices", "Lift-Rehost to PaaS", "Event-Driven Decomposition"). Explain why given the artifact data above.
+
+## 3. Target Platform Components
+For each layer (Compute, Database, Messaging, Storage, CI/CD, Monitoring), name the specific {hyperscaler.upper()} service and justify it based on the COBOL portfolio characteristics.
+
+## 4. COBOL → Cloud Mapping
+Map the mainframe constructs to cloud equivalents:
+- CICS transactions → {services['cics_replacement']}
+- VSAM files → (data strategy: {data_strategy})
+- JCL batch jobs → {services['batch']}
+- COBOL programs → (runtime: {runtime})
+- Copybooks → shared library / API contracts
+
+## 5. Migration Roadmap (3 Phases)
+Phase 1 (0-3 months): What to migrate first given HIGH risk = {risks_high}
+Phase 2 (3-9 months): Core business logic decomposition
+Phase 3 (9-18 months): Decommission mainframe components
+
+## 6. Risk Mitigation
+Address the top detected migration risks: {risk_summary}
+
+## 7. Estimated Effort
+T-shirt sizing per phase based on: {prog_count} programs, {business_rules} business rules, {cfg_edges:,} CFG edges.
+
+Be specific, actionable, and grounded in the artifact data provided. Do not give generic advice."""
+
+        try:
+            result = _call_llm(prompt)
+            yield fmt(result, "result")
+        except Exception as exc:
+            yield fmt(
+                f"LLM not configured ({exc}). Configure an API key in Settings.\n\n"
+                + _generate_static_recommendation(hyperscaler, services, prog_count,
+                                                   business_rules, risks_high, risks_med,
+                                                   cics_verbs, jcl_jobs, runtime, data_strategy),
+                "result"
+            )
+        yield fmt("", "done")
+
+    return StreamingResponse(stream(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+def _generate_static_recommendation(
+    hyperscaler: str, services: dict, prog_count: int, rules: int,
+    high: int, med: int, cics: int, jcl: int, runtime: str, data: str
+) -> str:
+    """Fallback static recommendation when LLM is unavailable."""
+    hs = hyperscaler.upper()
+    return f"""## Target Platform Recommendation — {hs}
+
+**Executive Summary**
+Your portfolio of {prog_count} COBOL programs with {rules} business rules, {cics} CICS transaction verbs and {jcl} JCL batch jobs represents a significant modernisation opportunity. With {high} HIGH and {med} MEDIUM migration risks, a phased strangler-fig approach targeting {hs} is recommended.
+
+**Recommended Architecture Pattern:** Strangler Fig → Event-Driven Microservices
+
+**Target Platform ({hs}):**
+- Compute: {services['compute']}
+- Database: {services['database']}
+- Messaging: {services['messaging']}
+- Storage: {services['storage']}
+- CICS → {services['cics_replacement']}
+- Batch: {services['batch']}
+- Monitoring: {services['monitoring']}
+- CI/CD: {services['ci_cd']}
+
+**Phase 1 (0-3 months):** Rehost infrastructure, set up CI/CD, instrument observability
+**Phase 2 (3-9 months):** Decompose CICS transactions into REST APIs; migrate VSAM to {services['database'].split('/')[0]}
+**Phase 3 (9-18 months):** Refactor JCL batch to {services['batch']}; decommission mainframe
+
+**Note:** Configure an LLM API key in Settings for a fully AI-grounded personalised recommendation."""
 
 
 # ── Serve UI (must be last) ───────────────────────────────────────────────────

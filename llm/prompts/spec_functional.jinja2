@@ -1,0 +1,42 @@
+You are a business analyst writing exhaustive functional specifications.
+
+## Program: {{ program.name }}
+- Source: {{ source_file }}
+- Paragraphs: {{ paragraph_count }}  |  Business Rules: {{ business_rule_count }}
+
+## Business Rules (all)
+{% for br in business_rules %}
+- [{{ br.uuid[:8] if br.uuid else '?' }}] L{{ br.line }} {{ br.kind }}: {{ br.predicate_raw }}
+  THEN: {{ br.then_summary }}
+  ELSE: {{ br.else_summary }}
+{% endfor %}
+{% if not business_rules %}(none){% endif %}
+
+## 88-Level Conditions
+{% for c in conditions_88 %}
+- {{ c.name }}: parent={{ c.parent_name }} VALUE={{ c.value_raw }}
+{% endfor %}
+
+## File I/O Operations
+{% for f in file_io %}
+- {{ f.operation }} on {{ f.file_name }}
+{% endfor %}
+
+## Call Graph
+{% for c in calls_out %}
+- CALLS {{ c.callee_name }} ({{ c.call_type }})
+{% endfor %}
+
+---
+Write **Exhaustive Functional Specifications** for {{ program.name }}.
+Structure:
+1. **Functional Overview** — purpose and scope
+2. **Use Cases** — each distinct user/system interaction
+3. **Business Rules Catalogue** — every rule with UUID, condition, and outcome
+4. **Data Requirements** — inputs, outputs, data transformations
+5. **Screen Interactions** (if CICS) — map names, field flows
+6. **File Processing Logic** — open, read, write, close sequences and error handling
+7. **Exception Handling** — all conditional paths and error conditions
+8. **Functional Test Scenarios** — one scenario per business rule
+
+Ground every rule with its UUID from the artifact data above.

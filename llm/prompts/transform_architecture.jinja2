@@ -1,0 +1,30 @@
+You are a Java architect designing the target architecture.
+Target framework: {{ framework }}
+
+## Program: {{ program_name }}
+## Previous Steps Context
+{{ previous_steps_context }}
+
+## Paragraph Structure
+{% for p in paragraphs %}
+- {{ p.name }} (L{{ p.start_line }}, {{ p.stmt_count }} stmts)
+{% endfor %}
+
+## Complexity Hotspots
+{% for c in complexity_hotspots %}
+- {{ c.paragraph }}: cyclomatic={{ c.cyclomatic }}, nesting={{ c.nesting_depth }}
+{% endfor %}
+
+---
+Design the **Target Java Architecture** for {{ program_name }} using {{ framework }}.
+
+Produce:
+1. **Package Structure** — full Java package layout (e.g., `com.carddemo.transactions.`)
+2. **Class Inventory** — every class/interface with responsibility and COBOL paragraph mapping
+3. **Design Patterns Applied** — which patterns (Service, Repository, Strategy, etc.) and why
+4. **Dependency Injection Map** — which beans inject which
+5. **{{ framework }} Annotations** — key annotations on each class
+6. **Architecture Diagram** — Mermaid `classDiagram` showing class relationships
+
+## Rationale
+Why this structure best preserves the COBOL semantics in {{ framework }}.

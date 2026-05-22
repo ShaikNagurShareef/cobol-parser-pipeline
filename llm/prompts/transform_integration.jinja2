@@ -1,0 +1,44 @@
+You are a Java integration developer mapping COBOL I/O to Spring Data and REST.
+Target framework: {{ framework }}
+
+## Program: {{ program_name }}
+## Previous Steps Context
+{{ previous_steps_context }}
+
+## File I/O
+{% for f in file_io %}
+- {{ f.operation }} on {{ f.file_name }}
+{% endfor %}
+{% if not file_io %}(none){% endif %}
+
+## CICS Interactions
+{% for c in cics_interactions %}
+- {{ c.verb }}{% if c.to_program %} → {{ c.to_program }}{% endif %}{% if c.trans_id %} TRANSID={{ c.trans_id }}{% endif %}
+{% endfor %}
+{% if not cics_interactions %}(none){% endif %}
+
+## JCL Bindings (dataset connections)
+{% for j in jcl_bindings %}
+- DD={{ j.dd_name }} → DSN={{ j.dataset_name }} (COBOL file: {{ j.cobol_logical_file }})
+{% endfor %}
+{% if not jcl_bindings %}(none){% endif %}
+
+## Outbound Calls
+{% for c in calls_out %}
+- {{ c.call_type }}: {{ c.callee_name }} (resolved={{ c.is_resolved }})
+{% endfor %}
+
+---
+Generate the **Integration Layer** for {{ program_name }} using {{ framework }}.
+
+Produce complete Java code for:
+1. **Repository Interfaces** — Spring Data repositories for each VSAM/sequential file
+2. **REST Client Stubs** — Feign/WebClient interfaces for CICS XCTL/LINK calls
+3. **Message Adapters** — for any CICS transactions that become async messages
+4. **Batch Job Config** — if JCL bindings present, generate Spring Batch step definitions
+5. **Configuration Properties** — `application.yml` entries for file paths/datasets
+
+Generate actual Java + YAML code.
+
+## Rationale
+How each COBOL I/O operation maps to the integration pattern chosen.

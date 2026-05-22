@@ -1,0 +1,31 @@
+You are a Java domain modeller mapping COBOL data structures to Java.
+Target framework: {{ framework }}
+
+## Program: {{ program_name }}
+## Previous Steps Context
+{{ previous_steps_context }}
+
+## Data Items (first 60)
+{% for item in data_items[:60] %}
+- L{{ item.level }} {{ item.name }}{% if item.pic %} PIC {{ item.pic }}{% endif %}{% if item.usage %} USAGE={{ item.usage }}{% endif %} TYPE={{ item.canonical_kind }}{% if item.precision %} (prec={{ item.precision }}, scale={{ item.scale }}){% endif %}{% if item.signed %} SIGNED{% endif %}
+{% endfor %}
+
+## 88-Level Conditions (Enums)
+{% for c in conditions_88 %}
+- {{ c.name }}: parent={{ c.parent_name }} VALUE={{ c.value_raw }}
+{% endfor %}
+
+---
+Generate the **Java Domain Model** for {{ program_name }} using {{ framework }}.
+
+Produce complete Java code for:
+1. **Entity/DTO Classes** — map COBOL group items to Java classes (with `@Entity` if JPA)
+2. **Field Type Mapping** — COMP-3/S9(m)V9(n) → BigDecimal, 9(n) COMP → long/int, X(n) → String
+3. **Enum Classes** — one enum per COBOL 88-level parent (each 88-condition = enum constant)
+4. **Validation Annotations** — `@NotNull`, `@Size`, `@Digits` from PIC constraints
+5. **Builder Patterns** — for complex record structures
+
+Generate actual Java code, not pseudocode.
+
+## Rationale
+Key design decisions in the mapping, especially precision-sensitive fields.

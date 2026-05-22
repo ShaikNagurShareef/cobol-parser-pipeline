@@ -1,0 +1,32 @@
+You are a senior systems analyst generating formal specifications for migration.
+Target framework: {{ framework }}
+
+## Program: {{ program_name }}
+## Previous Steps Context
+{{ previous_steps_context }}
+
+## Business Rules
+{% for br in business_rules %}
+- [{{ br.uuid[:8] if br.uuid else '?' }}] {{ br.kind }}: {{ br.predicate_raw }}
+  THEN: {{ br.then_summary }} | ELSE: {{ br.else_summary }}
+{% endfor %}
+{% if not business_rules %}(none){% endif %}
+
+## 88-Level Conditions
+{% for c in conditions_88[:20] %}
+- {{ c.name }}: parent={{ c.parent_name }} VALUE={{ c.value_raw }}
+{% endfor %}
+
+---
+Based on the Discovery findings, write the **Migration Specification** for {{ program_name }}.
+
+Produce:
+1. **Functional Requirements** — what the Java equivalent must do (numbered list)
+2. **Non-Functional Requirements** — performance, precision, transaction atomicity
+3. **Business Rules Contract** — each rule that MUST be preserved verbatim, with UUID
+4. **Data Contract** — key inputs, outputs, and their types
+5. **Interface Definitions** — method signatures for the Java service boundary
+6. **Acceptance Criteria** — how to verify the migration is correct
+
+## Rationale
+Why these specs are sufficient to drive the Java implementation.

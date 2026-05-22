@@ -1,0 +1,46 @@
+You are a principal COBOL engineer writing exhaustive technical specifications.
+
+## Program: {{ program.name }}
+- Source: {{ source_file }}
+- Paragraphs: {{ paragraph_count }}  |  Data Items: {{ data_item_count }}  |  CFG Edges: {{ cfg_edge_summary | sum(attribute='values') if cfg_edge_summary else 'N/A' }}
+
+## Data Items (first 50)
+{% for item in data_items[:50] %}
+- L{{ item.level }} {{ item.name }}{% if item.pic %} PIC {{ item.pic }}{% endif %}{% if item.usage %} USAGE={{ item.usage }}{% endif %} TYPE={{ item.canonical_kind }}{% if item.precision %} prec={{ item.precision }} scale={{ item.scale }}{% endif %}
+{% endfor %}
+
+## Complexity Hotspots
+{% for c in complexity_hotspots %}
+- {{ c.paragraph }}: cyclomatic={{ c.cyclomatic }}, stmt_count={{ c.statement_count }}, nesting={{ c.nesting_depth }}, fan_out={{ c.fan_out }}
+{% endfor %}
+
+## CFG Edge Summary
+{% for edge_type, count in cfg_edge_summary.items() %}
+- {{ edge_type }}: {{ count }}
+{% endfor %}
+
+## JCL Bindings
+{% for j in jcl_bindings %}
+- {{ j.job_name }}/{{ j.step_name }}: DD={{ j.dd_name }} DSN={{ j.dataset_name }} → {{ j.cobol_logical_file }}
+{% endfor %}
+
+## Migration Risks
+{% for r in migration_risks %}
+- [{{ r.severity }}] L{{ r.line }}: {{ r.kind }} — {{ r.note }}
+{% endfor %}
+
+---
+Write **Exhaustive Technical Specifications** for {{ program.name }}.
+Structure:
+1. **Technical Overview** — language, runtime, memory model, JVM/mainframe constraints
+2. **Data Dictionary** — every significant data item with type, precision, usage, and dependencies
+3. **Control Flow Specification** — paragraph call graph, PERFORM chains, conditional branches (reference CFG edge types)
+4. **Arithmetic & Precision** — all COMPUTE/ADD/SUBTRACT with precision requirements (COMP-3 → BigDecimal implications)
+5. **File I/O Specification** — file assignments, record layouts, access patterns
+6. **Inter-program Communication** — CALL interfaces, parameter passing, COMMAREA layout
+7. **CICS Transaction Flow** — XCTL/LINK/RETURN sequences, MAP/MAPSET bindings
+8. **Error Handling** — all conditional error paths, ON SIZE ERROR, FILE STATUS checks
+9. **Performance Characteristics** — loop structures, IO volumes, complexity hotspots
+10. **Migration Technical Risks** — severity-ranked with mitigation strategies
+
+Reference specific data item names, paragraph names, and line numbers.
