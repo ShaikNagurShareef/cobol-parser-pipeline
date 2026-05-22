@@ -9,6 +9,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
   <style>
     /* ── UST Global Brand Palette (extracted from ust.com CSS) ── */
     :root {
@@ -175,6 +176,7 @@
     @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
     .spin { animation: spin 1s linear infinite; }
     @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
 
     /* Layer Explorer */
     .lx-flow-node { background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 16px; min-width: 110px; text-align: center; transition: all .15s; flex-shrink: 0; }
@@ -193,7 +195,7 @@
       #content { padding: 16px; }
     }
   </style>
-  <script type="module" crossorigin src="/assets/index-B0oRFGby.js"></script>
+  <script type="module" crossorigin src="/assets/index-mUb6pb00.js"></script>
 </head>
 <body>
 
@@ -295,6 +297,10 @@
   </div>
   <h1 id="page-title" style="font-size:15px;font-weight:600;flex:1;color:var(--text);">Dashboard</h1>
   <div style="display:flex;align-items:center;gap:12px;">
+    <span id="pipeline-running-badge" style="display:none;align-items:center;gap:6px;font-size:12px;color:#4ade80;background:rgba(74,222,128,.12);border:1px solid rgba(74,222,128,.3);border-radius:12px;padding:3px 10px;">
+      <span style="width:7px;height:7px;background:#4ade80;border-radius:50%;animation:pulse 1s infinite;"></span>
+      <span>Pipeline running…</span>
+    </span>
     <span id="db-badge" style="font-size:12px;color:var(--muted);">DB: checking…</span>
     <a href="/docs" target="_blank" class="btn btn-secondary" style="font-size:12px;padding:5px 12px;">API Docs ↗</a>
   </div>
@@ -490,39 +496,71 @@
   </div>
 
   <!-- Knowledge Graph / Source Architecture -->
-  <div class="card">
-    <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
-      <div style="width:4px;height:28px;background:#d876d6;border-radius:2px;"></div>
-      <div>
-        <div style="font-weight:700;font-size:15px;">Knowledge Graph — Repo Understanding</div>
-        <div style="font-size:12px;color:var(--muted);margin-top:2px;">How every artifact type connects to build complete system intelligence</div>
+  <div class="card" style="padding:0;overflow:hidden;">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 20px;border-bottom:1px solid var(--border);">
+      <div style="display:flex;align-items:center;gap:12px;">
+        <div style="width:4px;height:28px;background:#d876d6;border-radius:2px;"></div>
+        <div>
+          <div style="font-weight:700;font-size:15px;">Knowledge Graph — Interactive Repository Map</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:2px;">Click any node to explore — programs (teal), copybooks (blue), JCL jobs (amber) · Edges show call/COPY/CICS relationships</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <span id="kg-node-count" style="font-size:12px;color:var(--muted);"></span>
+        <button class="btn btn-secondary" onclick="initKnowledgeGraph()" style="font-size:12px;padding:4px 12px;">⟳ Refresh</button>
       </div>
     </div>
-    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:16px;" id="kg-summary">
-      <div class="card-sm" style="text-align:center;border-top:3px solid #5ecdd1;">
-        <div style="font-size:20px;font-weight:700;color:#5ecdd1;" id="kg-programs">—</div>
-        <div style="font-size:11px;color:var(--muted);">Programs</div>
+    <!-- Summary stats row -->
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:0;border-bottom:1px solid var(--border);" id="kg-summary">
+      <div style="text-align:center;padding:10px;border-right:1px solid var(--border);">
+        <div style="font-size:18px;font-weight:700;color:#5ecdd1;" id="kg-programs">—</div>
+        <div style="font-size:10px;color:var(--muted);">Programs</div>
       </div>
-      <div class="card-sm" style="text-align:center;border-top:3px solid #34d399;">
-        <div style="font-size:20px;font-weight:700;color:#34d399;" id="kg-cfg">—</div>
-        <div style="font-size:11px;color:var(--muted);">CFG Edges</div>
+      <div style="text-align:center;padding:10px;border-right:1px solid var(--border);">
+        <div style="font-size:18px;font-weight:700;color:#34d399;" id="kg-cfg">—</div>
+        <div style="font-size:10px;color:var(--muted);">CFG Edges</div>
       </div>
-      <div class="card-sm" style="text-align:center;border-top:3px solid #fbbf24;">
-        <div style="font-size:20px;font-weight:700;color:#fbbf24;" id="kg-calls">—</div>
-        <div style="font-size:11px;color:var(--muted);">Call Edges</div>
+      <div style="text-align:center;padding:10px;border-right:1px solid var(--border);">
+        <div style="font-size:18px;font-weight:700;color:#fbbf24;" id="kg-calls">—</div>
+        <div style="font-size:10px;color:var(--muted);">Call Edges</div>
       </div>
-      <div class="card-sm" style="text-align:center;border-top:3px solid #d876d6;">
-        <div style="font-size:20px;font-weight:700;color:#d876d6;" id="kg-rules">—</div>
-        <div style="font-size:11px;color:var(--muted);">Business Rules</div>
+      <div style="text-align:center;padding:10px;border-right:1px solid var(--border);">
+        <div style="font-size:18px;font-weight:700;color:#d876d6;" id="kg-rules">—</div>
+        <div style="font-size:10px;color:var(--muted);">Business Rules</div>
       </div>
-      <div class="card-sm" style="text-align:center;border-top:3px solid #f87171;">
-        <div style="font-size:20px;font-weight:700;color:#f87171;" id="kg-risks">—</div>
-        <div style="font-size:11px;color:var(--muted);">Migration Risks</div>
+      <div style="text-align:center;padding:10px;">
+        <div style="font-size:18px;font-weight:700;color:#f87171;" id="kg-risks">—</div>
+        <div style="font-size:10px;color:var(--muted);">Migration Risks</div>
       </div>
     </div>
-    <div style="font-size:12px;color:var(--muted);line-height:1.8;">
-      <strong style="color:var(--text);">Source Architecture:</strong>
-      Every COBOL program is represented as a graph node with UUID-stable identity. Programs link to paragraphs → statements → data items via parent-child edges. The call graph connects programs via CALL and CICS LINK/XCTL verbs. The CFG graph connects paragraphs via PERFORM, BRANCH_TRUE/FALSE, GOTO, and LOOP_BACK edges. JCL bindings connect job steps to programs and datasets. Business rules connect predicates to the data items they evaluate. This 360° knowledge graph enables AI-grounded spec generation, impact analysis, dead-code detection, and safe refactoring across the entire mainframe estate.
+    <!-- Graph canvas + side pane -->
+    <div style="display:flex;height:500px;">
+      <div id="kg-network" style="flex:1;background:var(--surface2);position:relative;">
+        <div id="kg-loading" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:13px;">
+          <span>Loading knowledge graph…</span>
+        </div>
+      </div>
+      <!-- Side pane — hidden until node click -->
+      <div id="kg-side-pane" style="width:0;overflow:hidden;transition:width .25s;border-left:1px solid var(--border);background:var(--surface);display:flex;flex-direction:column;">
+        <div style="padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
+          <span id="kg-pane-title" style="font-weight:600;font-size:13px;">Node Details</span>
+          <button onclick="closeKGPane()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:16px;padding:0;">✕</button>
+        </div>
+        <div id="kg-pane-meta" style="padding:14px 16px;font-size:12px;color:var(--muted);border-bottom:1px solid var(--border);line-height:1.8;"></div>
+        <div style="padding:10px 16px;border-bottom:1px solid var(--border);">
+          <button id="kg-explain-btn" class="btn btn-primary" onclick="explainKGNode()" style="width:100%;font-size:12px;padding:6px;">
+            ✦ Explain with AI
+          </button>
+        </div>
+        <div id="kg-pane-explain" style="flex:1;overflow-y:auto;padding:14px 16px;font-size:12px;color:var(--text);line-height:1.7;white-space:pre-wrap;"></div>
+      </div>
+    </div>
+    <!-- Legend -->
+    <div style="display:flex;gap:20px;padding:10px 20px;border-top:1px solid var(--border);font-size:11px;color:var(--muted);">
+      <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#5ecdd1;margin-right:4px;vertical-align:middle;"></span>COBOL Program</span>
+      <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#60c8fa;margin-right:4px;vertical-align:middle;"></span>Copybook</span>
+      <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#fbbf24;margin-right:4px;vertical-align:middle;"></span>JCL Job</span>
+      <span>— CALL edge &nbsp; ··· COPY &nbsp; — TX flow</span>
     </div>
   </div>
 </section>
@@ -860,15 +898,15 @@
 
 <!-- ─── TRANSFORM ──────────────────────────────────────────────────────────── -->
 <section id="page-transform" class="fade-in" style="display:none;">
-  <div class="section-title">Forward Engineering — HITL Transform</div>
-  <div class="section-sub">Portfolio-level readiness assessment, then program-by-program COBOL → Java with Human-in-the-Loop approval at each step</div>
+  <div class="section-title">Forward Engineering — Portfolio Transformation</div>
+  <div class="section-sub">Complete repository transformation analysis — all COBOL programs, JCL batch jobs, copybooks, CICS transactions, and data flows modernised together as a coherent system</div>
 
   <!-- Portfolio readiness banner -->
   <div class="card" style="margin-bottom:20px;border-left:3px solid #5ecdd1;">
     <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
       <div>
-        <div style="font-weight:700;font-size:14px;margin-bottom:4px;">Application Portfolio — Transform Readiness</div>
-        <div style="font-size:12px;color:var(--muted);">Scope: all COBOL programs, copybooks, JCL jobs, BMS maps, CICS transactions, and data items.</div>
+        <div style="font-weight:700;font-size:14px;margin-bottom:4px;">Application Portfolio — Full Scope</div>
+        <div style="font-size:12px;color:var(--muted);">Ingested artifacts: all programs, copybooks, JCL jobs, BMS maps, CICS transactions. Transformation reasoning is grounded against all 7 artifact layers.</div>
       </div>
       <div id="transform-portfolio-stats" style="display:flex;gap:16px;font-size:12px;">
         <div style="text-align:center;"><div id="tx-port-programs" style="font-size:18px;font-weight:700;color:#5ecdd1;">—</div><div style="color:var(--muted);">Programs</div></div>
@@ -879,58 +917,72 @@
     </div>
   </div>
 
-  <!-- Session setup -->
+  <!-- Why not line-to-line info box -->
+  <div class="card" style="margin-bottom:20px;background:rgba(96,200,250,.07);border:1px solid rgba(96,200,250,.2);">
+    <div style="font-weight:600;font-size:13px;color:#60c8fa;margin-bottom:8px;">Why transformation is not line-to-line transpilation</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;font-size:12px;color:var(--muted);line-height:1.7;">
+      <div><strong style="color:var(--text);">COBOL paradigm</strong><br>Procedural, record-oriented, implicit state via Working-Storage. No objects, no encapsulation. Data and logic are flat.</div>
+      <div><strong style="color:var(--text);">Java/OO paradigm</strong><br>Object-oriented, hexagonal architecture, DI containers. State is encapsulated in objects. Logic is in methods. I/O via repositories.</div>
+      <div><strong style="color:var(--text);">What the platform does</strong><br>Uses AST + CFG + business rules + data dictionary to understand intent, then architects equivalent OO components — not a character-for-character translation.</div>
+    </div>
+  </div>
+
+  <!-- Transformation configuration -->
   <div class="card" style="margin-bottom:20px;" id="transform-setup-card">
-    <div style="font-size:12px;color:var(--muted);margin-bottom:10px;">Select a specific program for deep-dive HITL transformation. The transform engine uses full portfolio context (all programs, copybooks, and JCL dependencies) when generating each step.</div>
-    <div style="display:grid;grid-template-columns:1fr 1fr auto auto auto;gap:12px;align-items:end;">
+    <div style="font-weight:600;font-size:14px;margin-bottom:16px;">Transformation Configuration</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:14px;align-items:end;">
       <div>
-        <div style="font-size:12px;color:var(--muted);margin-bottom:6px;">COBOL Program (deep-dive)</div>
-        <select id="transform-program" style="width:100%;">
-          <option value="">— select program —</option>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:6px;">Target Framework</div>
+        <select id="transform-framework" style="width:100%;">
+          <option value="Spring Boot">Spring Boot</option>
+          <option value="Quarkus">Quarkus</option>
+          <option value="Micronaut">Micronaut</option>
+          <option value="Helidon">Helidon SE</option>
         </select>
       </div>
       <div>
-        <div style="font-size:12px;color:var(--muted);margin-bottom:6px;">Target Framework</div>
-        <input id="transform-framework" type="text" placeholder="e.g. Spring Boot, Quarkus…" value="Spring Boot" style="width:100%;">
+        <div style="font-size:12px;color:var(--muted);margin-bottom:6px;">Target Cloud</div>
+        <select id="transform-cloud" style="width:100%;">
+          <option value="AWS">AWS</option>
+          <option value="Azure">Azure</option>
+          <option value="GCP">Google Cloud</option>
+          <option value="On-Premises">On-Premises / Private Cloud</option>
+        </select>
       </div>
       <div>
-        <div style="font-size:12px;color:var(--muted);margin-bottom:6px;">Auto Mode</div>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;height:36px;">
-          <input type="checkbox" id="transform-auto" style="width:16px;height:16px;">
-          <span style="font-size:13px;">LLM approves</span>
-        </label>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:6px;">Decomposition Pattern</div>
+        <select id="transform-decomposition" style="width:100%;">
+          <option value="Strangler Fig">Strangler Fig (recommended)</option>
+          <option value="Big Bang">Big Bang Rewrite</option>
+          <option value="Parallel Run">Parallel Run</option>
+          <option value="Modular Monolith">Modular Monolith first</option>
+        </select>
       </div>
-      <button id="transform-start-btn" class="btn btn-primary" onclick="startTransform()" style="height:36px;">
+      <button id="transform-start-btn" class="btn btn-primary" onclick="startTransform()" style="height:36px;white-space:nowrap;">
         <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-        Start
+        Analyze Portfolio
       </button>
-      <button class="btn btn-secondary" onclick="resetTransform()" style="height:36px;font-size:12px;">Reset</button>
     </div>
   </div>
 
-  <!-- Step progress indicator -->
-  <div id="transform-progress-bar" style="display:none;margin-bottom:20px;" class="card">
-    <div style="font-size:12px;color:var(--muted);margin-bottom:10px;font-weight:600;">TRANSFORMATION PIPELINE</div>
-    <div style="display:flex;align-items:center;gap:0;">
-      <!-- steps injected by JS -->
-      <div id="transform-step-indicators" style="display:flex;align-items:center;gap:0;width:100%;"></div>
+  <!-- Streaming output area -->
+  <div id="transform-output-area" style="display:none;">
+    <!-- Section accordion injected by JS -->
+    <div id="transform-sections" style="display:flex;flex-direction:column;gap:12px;"></div>
+    <div id="transform-complete" style="display:none;margin-top:16px;" class="card">
+      <div style="font-size:18px;font-weight:700;color:#4ade80;margin-bottom:8px;">✓ Portfolio Analysis Complete</div>
+      <div style="font-size:13px;color:var(--muted);margin-bottom:16px;">Full portfolio transformation analysis generated and grounded against artifact DB.</div>
+      <div style="display:flex;gap:10px;">
+        <button class="btn btn-primary" onclick="downloadTransformOutput('md')">⬇ Download Markdown</button>
+        <button class="btn btn-secondary" onclick="downloadTransformOutput('pdf')">⬇ Download PDF</button>
+      </div>
     </div>
   </div>
 
-  <!-- Active step panel -->
-  <div id="transform-step-panel" style="display:none;">
-    <!-- steps rendered by JS -->
-  </div>
-
-  <!-- Session complete panel -->
-  <div id="transform-complete" style="display:none;" class="card">
-    <div style="font-size:18px;font-weight:700;color:#4ade80;margin-bottom:8px;">&#x2713; Transformation Complete</div>
-    <div style="font-size:13px;color:var(--muted);margin-bottom:16px;">All 7 steps approved. Download the complete output.</div>
-    <div style="display:flex;gap:10px;">
-      <button class="btn btn-primary" onclick="downloadTransformOutput('md')">&#x2B07; Download as Markdown</button>
-      <button class="btn btn-secondary" onclick="downloadTransformOutput('pdf')">&#x2B07; Download as PDF</button>
-    </div>
-  </div>
+  <!-- Hidden step progress bar kept for download compatibility -->
+  <div id="transform-progress-bar" style="display:none;"></div>
+  <div id="transform-step-panel" style="display:none;"></div>
+  <div id="transform-step-indicators" style="display:none;"></div>
 </section>
 
 <!-- ─── PLATFORM RECOMMENDER ─────────────────────────────────────────────── -->

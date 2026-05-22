@@ -80,6 +80,10 @@ let coverageAllRows: CoverageRow[] = [];
 let riskAllRows: RiskRow[] = [];
 let currentVizTab = 'ast';
 let pipelineRunning = false;
+// Pipeline runs independently of navigation — dedicated controller and log buffer
+let _pipelineCtrl: AbortController | null = null;
+const _pipelineLogBuffer: Array<{ kind: string; msg: string; ts?: number }> = [];
+let _kgSelectedNode: { id: string; label: string; kind: string; title: string } | null = null;
 
 let covChart: any = null;
 let layerChart: any = null;
@@ -158,6 +162,7 @@ function navigate(page: string): void {
   if (page === 'spec')           { void loadProgramDropdowns(); void loadCurrentModel(); }
   if (page === 'transform')      void loadTransformPage();
   if (page === 'platform')       void loadPlatformPage();
+  if (page === 'pipeline')       _replayPipelineLog();
   if (page === 'coverage')       void loadCoverage();
   if (page === 'risks')          void loadRisks();
   if (page === 'settings')       void loadSettings();
@@ -279,6 +284,141 @@ function renderKnowledgeGraph(s: Partial<Stats>): void {
     const el = $<HTMLElement>(id);
     if (el) el.textContent = ((s as any)[key] ?? 0).toLocaleString();
   }
+  // Auto-init graph when data is present
+  if ((s as any).programs > 0) void initKnowledgeGraph();
+}
+
+async function initKnowledgeGraph(): Promise<void> {
+  const container = $<HTMLElement>('kg-network');
+  const loadingEl = $<HTMLElement>('kg-loading');
+  if (!container) return;
+  if (loadingEl) loadingEl.style.display = 'flex';
+
+  try {
+    const data = await apiFetch<{ nodes: any[]; edges: any[]; stats: any }>('/knowledge-graph');
+    const countEl = $<HTMLElement>('kg-node-count');
+    if (countEl) countEl.textContent = `${data.nodes.length} nodes · ${data.edges.length} edges`;
+    if (loadingEl) loadingEl.style.display = 'none';
+
+    const vis = (window as any).vis;
+    if (!vis) {
+      container.innerHTML = '<div style="padding:40px;text-align:center;color:var(--muted);">vis.js not loaded — check network connection.</div>';
+      return;
+    }
+    if (data.nodes.length === 0) {
+      container.innerHTML = '<div style="padding:40px;text-align:center;color:var(--muted);">Run the pipeline first to populate the knowledge graph.</div>';
+      return;
+    }
+
+    const groupColors: Record<string, string> = { program: '#5ecdd1', copybook: '#60c8fa', jcl: '#fbbf24' };
+    const visNodes = new vis.DataSet(data.nodes.map((n: any) => ({
+      id: n.id,
+      label: n.label.length > 14 ? n.label.slice(0, 14) + '…' : n.label,
+      title: n.title || n.label,
+      group: n.group,
+      color: { background: groupColors[n.group] ?? '#7e8c9a', border: groupColors[n.group] ?? '#7e8c9a',
+               highlight: { background: '#fff', border: groupColors[n.group] ?? '#5ecdd1' } },
+      font: { color: '#0a1628', size: 10, bold: true },
+      shape: n.group === 'program' ? 'ellipse' : n.group === 'jcl' ? 'box' : 'dot',
+      size: n.group === 'program' ? 18 : 12,
+    })));
+
+    const visEdges = new vis.DataSet(data.edges.map((e: any, i: number) => ({
+      id: i, from: e.from, to: e.to, title: e.label,
+      arrows: 'to', dashes: e.kind === 'copy',
+      color: { color: e.kind === 'call' ? '#5ecdd188' : e.kind === 'copy' ? '#60c8fa66' : '#fbbf2466', opacity: 0.8 },
+      width: e.kind === 'call' ? 1.5 : 1,
+      smooth: { type: 'curvedCW', roundness: 0.2 },
+    })));
+
+    container.innerHTML = '';
+    const network = new vis.Network(container, { nodes: visNodes, edges: visEdges }, {
+      physics: { enabled: true, solver: 'forceAtlas2Based',
+        forceAtlas2Based: { gravitationalConstant: -80, centralGravity: 0.01, springLength: 120, springConstant: 0.08, damping: 0.4 },
+        stabilization: { iterations: 200 } },
+      interaction: { hover: true, tooltipDelay: 200, navigationButtons: false },
+      layout: { improvedLayout: false },
+    });
+    network.on('click', (params: any) => {
+      if (params.nodes.length > 0) {
+        const nodeId = params.nodes[0];
+        const nodeData = data.nodes.find((n: any) => n.id === nodeId);
+        if (nodeData) onKGNodeClick(nodeData);
+      } else {
+        closeKGPane();
+      }
+    });
+    network.once('stabilizationIterationsDone', () => network.setOptions({ physics: false }));
+  } catch(e) {
+    if (loadingEl) loadingEl.style.display = 'none';
+    if (!isAbort(e) && container) container.innerHTML = `<div style="padding:40px;text-align:center;color:var(--muted);">Graph unavailable: ${(e as Error).message}</div>`;
+  }
+}
+
+function onKGNodeClick(node: { id: string; label: string; kind: string; title: string }): void {
+  _kgSelectedNode = node;
+  const pane  = $<HTMLElement>('kg-side-pane');
+  const title = $<HTMLElement>('kg-pane-title');
+  const meta  = $<HTMLElement>('kg-pane-meta');
+  const explain = $<HTMLElement>('kg-pane-explain');
+  const btn   = $<HTMLButtonElement>('kg-explain-btn');
+  if (pane)    pane.style.width = '320px';
+  if (title)   title.textContent = node.label;
+  if (meta)    meta.innerHTML = (node.title ?? '').replace(/\n/g, '<br>');
+  if (explain) explain.textContent = '';
+  if (btn)     btn.textContent = '✦ Explain with AI';
+}
+
+function closeKGPane(): void {
+  const pane = $<HTMLElement>('kg-side-pane');
+  if (pane) pane.style.width = '0';
+  _kgSelectedNode = null;
+}
+
+async function explainKGNode(): Promise<void> {
+  if (!_kgSelectedNode) return;
+  const explain = $<HTMLElement>('kg-pane-explain');
+  const btn     = $<HTMLButtonElement>('kg-explain-btn');
+  if (!explain) return;
+  if (btn) { btn.disabled = true; btn.textContent = '⟳ Generating…'; }
+  explain.textContent = '';
+
+  const { id, label, kind } = _kgSelectedNode;
+
+  if (kind === 'program') {
+    try {
+      // Fetch spec (business persona) via streaming for the program
+      const prog = await apiFetch<any>(`/programs/${encodeURIComponent(label)}`);
+      const uuid = prog?.uuid ?? id;
+      const res = await fetch('/spec/generate', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uuid, scope: 'program', personas: ['business'] }),
+        signal: sig(),
+      });
+      if (!res.body) throw new Error('No body');
+      const reader = res.body.getReader(); const decoder = new TextDecoder(); let buf2 = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf2 += decoder.decode(value, { stream: true });
+        const parts = buf2.split('\n\n'); buf2 = parts.pop() ?? '';
+        for (const part of parts) {
+          if (!part.startsWith('data:')) continue;
+          try {
+            const ev = JSON.parse(part.slice(5));
+            if (ev.kind === 'token') explain.textContent += ev.token ?? '';
+            else if (ev.kind === 'result') { explain.textContent = ev.text ?? explain.textContent; }
+          } catch { /* skip */ }
+        }
+      }
+    } catch(e) {
+      if (!isAbort(e)) explain.textContent = _kgSelectedNode.title + '\n\n(LLM explanation unavailable — configure API key in Settings)';
+    }
+  } else {
+    explain.textContent = (_kgSelectedNode.title ?? label) + '\n\nFor deep explanation, run the pipeline and configure an LLM API key in Settings.';
+  }
+
+  if (btn) { btn.disabled = false; btn.textContent = '✦ Explain with AI'; }
 }
 
 
@@ -839,55 +979,93 @@ const TRANSFORM_STEP_NAMES = [
 ];
 
 async function loadTransformPage(): Promise<void> {
-  // Load portfolio stats for the readiness banner
   try {
     const s = await apiFetch<any>('/stats');
     const set = (id: string, v: any) => { const el = $<HTMLElement>(id); if (el) el.textContent = String(v ?? '—'); };
     set('tx-port-programs', (s.programs ?? 0).toLocaleString());
     set('tx-port-rules', (s.business_rules ?? 0).toLocaleString());
-    set('tx-port-risks-high', 0); // will be fetched below
+    set('tx-port-risks-high', 0);
     set('tx-port-jcl', (s.jcl_files ?? 0).toLocaleString());
   } catch { /* DB not ready */ }
   try {
     const cov = await apiFetch<any>('/coverage');
-    const highRisks = (cov.risk_summary?.HIGH ?? 0);
     const el = $<HTMLElement>('tx-port-risks-high');
-    if (el) el.textContent = String(highRisks);
-  } catch { /* ignore */ }
-
-  // Populate program dropdown for HITL deep-dive
-  const sel = $<HTMLSelectElement>('transform-program');
-  if (!sel || sel.options.length > 1) return;
-  try {
-    const data = await apiFetch<{ programs: any[] }>('/programs');
-    sel.innerHTML = '<option value="">— select program —</option>' +
-      (data.programs ?? []).map((p: any) => `<option value="${p.name}">${p.name}</option>`).join('');
+    if (el) el.textContent = String(cov.risk_summary?.HIGH ?? 0);
   } catch { /* ignore */ }
 }
 
 async function startTransform(): Promise<void> {
-  const prog = ($<HTMLSelectElement>('transform-program'))?.value ?? '';
-  const fw   = ($<HTMLInputElement>('transform-framework'))?.value ?? 'Spring Boot';
-  const auto = ($<HTMLInputElement>('transform-auto'))?.checked ?? false;
-  if (!prog) { showToast('Select a program first', 'error'); return; }
+  const fw     = ($<HTMLSelectElement>('transform-framework'))?.value ?? 'Spring Boot';
+  const cloud  = ($<HTMLSelectElement>('transform-cloud'))?.value ?? 'AWS';
+  const decomp = ($<HTMLSelectElement>('transform-decomposition'))?.value ?? 'Strangler Fig';
 
   const btn = $<HTMLButtonElement>('transform-start-btn');
   if (btn) btn.disabled = true;
 
+  const outputArea = $<HTMLElement>('transform-output-area');
+  const sectionsEl = $<HTMLElement>('transform-sections');
+  const completeEl = $<HTMLElement>('transform-complete');
+  if (outputArea) outputArea.style.display = '';
+  if (sectionsEl) sectionsEl.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:8px 0;">Analyzing portfolio…</div>';
+  if (completeEl) completeEl.style.display = 'none';
+
+  let currentCardBody: HTMLElement | null = null;
+  let portfolioMd = `# Portfolio Transformation: ${fw} on ${cloud}\n_Pattern: ${decomp}_\n\n`;
+
   try {
-    const session = await apiFetch<any>('/transform/sessions', {
+    const res = await fetch('/transform/portfolio', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ program_name: prog, framework: fw, auto_mode: auto }),
+      body: JSON.stringify({ framework: fw, cloud, decomposition: decomp }),
+      signal: sig(),
     });
-    _transformSessionId = session.session_id;
-    _transformSteps = session.steps ?? [];
-    _currentTransformStep = 0;
-    renderTransformUI(auto);
-    showToast(`Session ${_transformSessionId} created — run Step 1`);
+    if (!res.body) throw new Error('No response body');
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    let firstSection = true;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const parts = buf.split('\n\n');
+      buf = parts.pop() ?? '';
+      for (const part of parts) {
+        if (!part.startsWith('data:')) continue;
+        try {
+          const ev = JSON.parse(part.slice(5));
+          if (ev.kind === 'section' && sectionsEl) {
+            if (firstSection) { sectionsEl.innerHTML = ''; firstSection = false; }
+            const sectionColors = ['#5ecdd1','#60c8fa','#34d399','#fbbf24','#d876d6','#a78bfa','#f97316','#f87171'];
+            const idx = sectionsEl.children.length;
+            const color = sectionColors[idx % sectionColors.length];
+            const card = document.createElement('div');
+            card.className = 'card';
+            card.style.cssText = `border-left:3px solid ${color};margin-bottom:0;`;
+            card.innerHTML = `
+              <div style="font-weight:700;font-size:14px;margin-bottom:10px;color:${color};">${ev.section ?? ''}</div>
+              <div style="font-size:13px;color:var(--muted);line-height:1.8;white-space:pre-wrap;"></div>
+            `;
+            sectionsEl.appendChild(card);
+            currentCardBody = card.querySelector<HTMLElement>('div:last-child');
+            if (currentCardBody) currentCardBody.textContent = ev.content ?? '';
+            portfolioMd += `## ${ev.section}\n\n${ev.content ?? ''}\n\n`;
+          } else if (ev.kind === 'token' && currentCardBody) {
+            currentCardBody.textContent = (currentCardBody.textContent ?? '') + (ev.token ?? '');
+            portfolioMd += ev.token ?? '';
+          } else if (ev.kind === 'done') {
+            if (completeEl) completeEl.style.display = '';
+            (window as any)._portfolioTransformMd = portfolioMd;
+            showToast('Portfolio analysis complete', 'ok');
+          } else if (ev.kind === 'error') {
+            showToast(ev.msg ?? 'Error generating analysis', 'error');
+          }
+        } catch { /* skip malformed SSE */ }
+      }
+    }
   } catch(e) {
-    if (!isAbort(e)) showToast(`Failed: ${(e as Error).message}`, 'error');
-    if (btn) btn.disabled = false;
+    if (!isAbort(e)) showToast(`Analysis failed: ${(e as Error).message}`, 'error');
   }
+  if (btn) btn.disabled = false;
 }
 
 function renderTransformUI(autoMode: boolean): void {
@@ -1079,14 +1257,12 @@ function resetTransform(): void {
 }
 
 async function downloadTransformOutput(format: 'md' | 'pdf'): Promise<void> {
-  if (!_transformSessionId) return;
+  const combined = (window as any)._portfolioTransformMd ?? '';
+  if (!combined) { showToast('No analysis output yet — run portfolio analysis first', 'error'); return; }
   try {
-    const session = await apiFetch<any>(`/transform/sessions/${_transformSessionId}`);
-    const combined = TRANSFORM_STEP_NAMES.map((name, i) => {
-      const step = session.steps?.[i];
-      return `# Step ${i+1}: ${name}\n\n${step?.output ?? '(pending)'}\n\n---\n\n`;
-    }).join('');
-    const title = `${session.program_name}_${session.framework.replace(/ /g,'_')}_Transform`;
+    const fw = ($<HTMLSelectElement>('transform-framework'))?.value ?? 'transform';
+    const cloud = ($<HTMLSelectElement>('transform-cloud'))?.value ?? 'cloud';
+    const title = `Portfolio_Transform_${fw.replace(/ /g,'_')}_${cloud}`;
     if (format === 'md') {
       const blob = new Blob([combined], { type: 'text/markdown' });
       const a = document.createElement('a');
@@ -1131,7 +1307,8 @@ function setPipelineUI(running: boolean): void {
   if (runBtn) runBtn.disabled = running;
   if (cancelBtn) cancelBtn.style.display = running ? '' : 'none';
   if (progressCard) progressCard.style.display = running ? '' : 'none';
-  if (!running) { stagesComplete.clear(); updatePipelineProgress(0); }
+  if (!running) { updatePipelineProgress(0); }
+  _updatePipelineTopbar();
 }
 
 function updatePipelineProgress(pct: number): void {
@@ -1242,20 +1419,27 @@ function handleZipDrop(event: DragEvent): void {
 
 async function runPipeline(): Promise<void> {
   if (pipelineRunning) return;
-  setPipelineUI(true);
-  const log = $<HTMLElement>('pipeline-log')!;
-  log.innerHTML = '';
+
+  // Clear the log buffer for a fresh run
+  _pipelineLogBuffer.length = 0;
   stagesComplete.clear();
-  updatePipelineProgress(0);
+  setPipelineUI(true);
+
+  // Replay any buffered events to the log panel (in case it was hidden before)
+  _replayPipelineLog();
 
   // Prefer auto-detected corpus from clone/upload, then local path input
   const corpus = _detectedCorpus
     || ($<HTMLInputElement>('corpus-path'))?.value
     || 'external/carddemo/app/cbl';
+
+  // Use a dedicated controller that navigation will NOT abort
+  _pipelineCtrl = new AbortController();
+
   try {
     const res = await fetch('/pipeline/run', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ corpus }), signal: sig(),
+      body: JSON.stringify({ corpus }), signal: _pipelineCtrl.signal,
     });
     if (!res.body) throw new Error('No response body');
     const reader = res.body.getReader();
@@ -1271,15 +1455,71 @@ async function runPipeline(): Promise<void> {
         if (!part.startsWith('data:')) continue;
         try {
           const ev = JSON.parse(part.slice(5));
-          appendLog(log, ev);
-          if (ev.kind === 'done') setPipelineUI(false);
+          _pipelineLogBuffer.push(ev);
+          _updatePipelineLiveIfVisible(ev);
+          if (ev.kind === 'done') {
+            setPipelineUI(false);
+            _pipelineCtrl = null;
+            // Refresh dashboard stats after pipeline completes
+            void loadDashboard();
+            showToast('Pipeline completed', 'ok');
+          }
         } catch { /* skip */ }
       }
     }
   } catch(e) {
-    if (!isAbort(e)) appendLog(log, { kind: 'error', msg: (e as Error).message });
+    if (_pipelineCtrl && (e as Error).name !== 'AbortError') {
+      const errEv = { kind: 'error', msg: (e as Error).message };
+      _pipelineLogBuffer.push(errEv);
+      _updatePipelineLiveIfVisible(errEv);
+    }
   }
   setPipelineUI(false);
+  _pipelineCtrl = null;
+}
+
+function _updatePipelineLiveIfVisible(ev: { kind: string; msg: string; ts?: number }): void {
+  const log = $<HTMLElement>('pipeline-log');
+  if (!log) return;  // pipeline page not visible — event buffered, will replay on return
+  appendLog(log, ev);
+  // Also update stage indicators
+  const msg = (ev.msg ?? '').toLowerCase();
+  for (const [kw, stage] of Object.entries(STAGE_KEYWORDS)) {
+    if (msg.includes(kw)) {
+      const icon = document.querySelector<HTMLElement>(`.stage-item[data-stage="${stage}"] .stage-icon`);
+      if (icon) {
+        icon.textContent = ev.kind === 'error' ? '❌' : '✅';
+        stagesComplete.add(stage);
+        updatePipelineProgress((stagesComplete.size / STAGE_ORDER.length) * 100);
+      }
+    }
+  }
+  // Update topbar running badge
+  _updatePipelineTopbar();
+}
+
+function _replayPipelineLog(): void {
+  const log = $<HTMLElement>('pipeline-log');
+  if (!log) return;
+  log.innerHTML = '';
+  stagesComplete.clear();
+  for (const ev of _pipelineLogBuffer) {
+    _updatePipelineLiveIfVisible(ev);
+  }
+}
+
+function _updatePipelineTopbar(): void {
+  const badge = $<HTMLElement>('pipeline-running-badge');
+  if (!badge) return;
+  if (pipelineRunning) {
+    badge.style.display = 'flex';
+    const pct = STAGE_ORDER.length > 0
+      ? Math.round((stagesComplete.size / STAGE_ORDER.length) * 100) : 0;
+    const label = badge.querySelector('span:last-child');
+    if (label) label.textContent = `Pipeline running… ${pct}%`;
+  } else {
+    badge.style.display = 'none';
+  }
 }
 
 function runSmoke(): void {
@@ -1295,25 +1535,12 @@ function appendLog(log: HTMLElement, ev: { kind: string; msg: string; ts?: numbe
   div.textContent = `[${ts}] ${ev.msg}`;
   log.appendChild(div);
   log.scrollTop = log.scrollHeight;
-
-  const msg = (ev.msg ?? '').toLowerCase();
-  for (const [kw, stage] of Object.entries(STAGE_KEYWORDS)) {
-    if (msg.includes(kw)) {
-      const icon = document.querySelector<HTMLElement>(`.stage-item[data-stage="${stage}"] .stage-icon`);
-      if (icon) {
-        icon.textContent = ev.kind === 'error' ? '❌' : '✅';
-        stagesComplete.add(stage);
-        updatePipelineProgress((stagesComplete.size / STAGE_ORDER.length) * 100);
-      }
-    }
-  }
 }
 
 async function cancelPipeline(): Promise<void> {
   try {
     await fetch('/pipeline/cancel', { method: 'POST' });
-    abortCurrentPage();
-    _ctrl = new AbortController();
+    if (_pipelineCtrl) { _pipelineCtrl.abort(); _pipelineCtrl = null; }
     setPipelineUI(false);
     showToast('Pipeline cancelled');
   } catch(e) {
@@ -2283,6 +2510,10 @@ Object.assign(window as any, {
   rejectTransformStep,
   resetTransform,
   downloadTransformOutput,
+  initKnowledgeGraph,
+  onKGNodeClick,
+  closeKGPane,
+  explainKGNode,
   runPipeline,
   runSmoke,
   cancelPipeline,
