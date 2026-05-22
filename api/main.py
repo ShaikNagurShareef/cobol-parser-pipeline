@@ -44,9 +44,22 @@ app.add_middleware(
 PROJECT_ROOT = pathlib.Path(__file__).parent.parent
 DEFAULT_DB = pathlib.Path(os.environ.get("PIPELINE_DB", str(PROJECT_ROOT / "artifacts" / "pipeline.db")))
 UI_DIR = PROJECT_ROOT / "ui"
+_RUNS_FILE = PROJECT_ROOT / "artifacts" / "pipeline_runs.json"
 
 # Active pipeline process (for cancel support)
 _pipeline_proc: asyncio.subprocess.Process | None = None
+
+
+def _load_runs() -> list[dict]:
+    try:
+        return json.loads(_RUNS_FILE.read_text()) if _RUNS_FILE.exists() else []
+    except Exception:
+        return []
+
+
+def _save_runs(runs: list[dict]) -> None:
+    _RUNS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    _RUNS_FILE.write_text(json.dumps(runs, indent=2))
 
 
 def _con():
@@ -317,13 +330,14 @@ def list_programs(
                    (SELECT COUNT(*) FROM risk_register r WHERE r.program_uuid=n.uuid) AS risk_count
             FROM nodes n
             WHERE n.kind='Program' AND UPPER(n.name) LIKE ?
+            GROUP BY UPPER(n.name)
             ORDER BY n.name
             LIMIT ? OFFSET ?
             """,
             (like, limit, offset),
         ).fetchall()
         total = con.execute(
-            "SELECT COUNT(*) FROM nodes WHERE kind='Program' AND UPPER(name) LIKE ?",
+            "SELECT COUNT(DISTINCT UPPER(name)) FROM nodes WHERE kind='Program' AND UPPER(name) LIKE ?",
             (like,),
         ).fetchone()[0]
     return {"items": _rows_to_list(rows), "total": total}
@@ -1235,9 +1249,20 @@ async def run_pipeline_stream(body: dict = {}):
 
     async def event_stream() -> AsyncGenerator[str, None]:
         global _pipeline_proc
+        import uuid as _uuid_mod
 
         def fmt(msg: str, kind: str = "log") -> str:
             return f"data: {json.dumps({'kind': kind, 'msg': msg, 'ts': time.time()})}\n\n"
+
+        # Record run start
+        run_id = str(_uuid_mod.uuid4())[:8]
+        run_record: dict = {
+            "id": run_id, "corpus": corpus, "started_at": time.time(),
+            "completed_at": None, "status": "running", "stats": {}
+        }
+        runs = _load_runs()
+        runs.append(run_record)
+        _save_runs(runs)
 
         yield fmt("Pipeline starting…", "start")
         yield fmt(f"Corpus: {corpus}", "info")
@@ -1245,6 +1270,8 @@ async def run_pipeline_stream(body: dict = {}):
 
         if not pathlib.Path(corpus).exists():
             yield fmt(f"ERROR: corpus directory not found: {corpus}", "error")
+            run_record.update({"status": "error", "completed_at": time.time()})
+            runs[-1] = run_record; _save_runs(runs)
             yield fmt("DONE", "done")
             return
 
@@ -1254,6 +1281,7 @@ async def run_pipeline_stream(body: dict = {}):
             "--db", db_path,
         ]
 
+        final_status = "completed"
         try:
             _pipeline_proc = await asyncio.create_subprocess_exec(
                 *cmd,
@@ -1270,12 +1298,35 @@ async def run_pipeline_stream(body: dict = {}):
                 yield fmt("Pipeline completed successfully.", "success")
             elif _pipeline_proc.returncode == -15:
                 yield fmt("Pipeline was cancelled.", "error")
+                final_status = "cancelled"
             else:
                 yield fmt(f"Pipeline exited with code {_pipeline_proc.returncode}", "error")
+                final_status = "error"
         except Exception as exc:
             yield fmt(f"ERROR: {exc}", "error")
+            final_status = "error"
         finally:
             _pipeline_proc = None
+
+        # Snapshot stats for history record
+        snap: dict = {}
+        try:
+            with _con() as _c:
+                snap = {
+                    "programs": _c.execute("SELECT COUNT(DISTINCT UPPER(name)) FROM nodes WHERE kind='Program'").fetchone()[0],
+                    "paragraphs": _c.execute("SELECT COUNT(*) FROM nodes WHERE kind='Paragraph'").fetchone()[0],
+                    "business_rules": _c.execute("SELECT COUNT(*) FROM business_rules").fetchone()[0],
+                    "call_edges": _c.execute("SELECT COUNT(*) FROM call_graph").fetchone()[0],
+                }
+        except Exception:
+            pass
+        run_record.update({"status": final_status, "completed_at": time.time(), "stats": snap})
+        # Update run in list
+        runs = _load_runs()
+        for i, r in enumerate(runs):
+            if r.get("id") == run_id:
+                runs[i] = run_record; break
+        _save_runs(runs)
 
         yield fmt("DONE", "done")
 
@@ -1291,6 +1342,51 @@ async def cancel_pipeline():
         _pipeline_proc.terminate()
         return {"ok": True, "msg": "Pipeline cancelled"}
     return {"ok": False, "msg": "No pipeline running"}
+
+
+@app.get("/pipeline/runs", tags=["Pipeline"])
+def get_pipeline_runs():
+    """List all recorded pipeline runs with timestamps and result stats."""
+    runs = _load_runs()
+    return {"runs": list(reversed(runs))}  # newest first
+
+
+@app.delete("/pipeline/runs/{run_id}", tags=["Pipeline"])
+def delete_pipeline_run(run_id: str):
+    """Remove a single run from the history log (does not clear artifact data)."""
+    runs = _load_runs()
+    before = len(runs)
+    runs = [r for r in runs if r.get("id") != run_id]
+    _save_runs(runs)
+    return {"ok": True, "removed": before - len(runs)}
+
+
+@app.post("/pipeline/clear-db", tags=["Pipeline"])
+def clear_pipeline_db():
+    """Truncate ALL artifact tables and clear run history — resets the platform to factory state."""
+    _ARTIFACT_TABLES = [
+        "nodes", "data_items", "conditions_88", "control_flow", "def_use",
+        "call_graph", "file_io", "db_io", "transaction_flow", "screen_map",
+        "jcl_job", "jcl_dd", "jcl_dependency", "jcl_program_binding",
+        "copybook_use", "business_rules", "arithmetic_specs", "csd_catalog",
+        "parse_coverage", "risk_register", "complexity_metrics",
+    ]
+    cleared: list[str] = []
+    if _db_exists():
+        try:
+            with _con() as con:
+                for tbl in _ARTIFACT_TABLES:
+                    try:
+                        con.execute(f"DELETE FROM {tbl}")
+                        cleared.append(tbl)
+                    except Exception:
+                        pass
+        except Exception as exc:
+            return {"ok": False, "error": str(exc), "cleared": cleared}
+    # Also clear run history file
+    if _RUNS_FILE.exists():
+        _RUNS_FILE.unlink()
+    return {"ok": True, "cleared_tables": cleared, "run_history_cleared": True}
 
 
 @app.post("/pipeline/clone-github", tags=["Pipeline"])
@@ -1905,25 +2001,44 @@ def get_knowledge_graph():
             "call_edges": 0, "copy_edges": 0,
         }}
 
+    import re as _re
+
+    def _clean_cb_name(raw: str) -> str:
+        """Extract copybook name from Python object string representations."""
+        m = _re.search(r"copybook_name='([^']+)'", raw)
+        return m.group(1) if m else raw.split("'")[0].strip()
+
     try:
         with _con() as con:
-            # ── Program nodes ──────────────────────────────────────────────
+            # ── Program nodes (deduplicated by name, aggregated complexity) ─
             prog_rows = con.execute(
                 """SELECT n.uuid, n.name,
-                          cm.cyclomatic_complexity, cm.paragraph_count
+                          SUM(cm.cyclomatic) as total_cc,
+                          SUM(cm.statement_count) as total_stmts,
+                          COUNT(DISTINCT p.uuid) as para_count
                    FROM nodes n
                    LEFT JOIN complexity_metrics cm ON cm.program_uuid = n.uuid
+                   LEFT JOIN nodes p ON p.parent_uuid = n.uuid AND p.kind = 'Paragraph'
                    WHERE n.kind = 'Program'
+                   GROUP BY UPPER(n.name)
                    LIMIT 200"""
             ).fetchall()
+            seen_prog_names: set[str] = set()
             for r in prog_rows:
+                name_key = (r[1] or '').upper()
+                if name_key in seen_prog_names:
+                    continue
+                seen_prog_names.add(name_key)
                 cc = r[2]
-                pc = r[3]
+                sc = r[3]
+                pc = r[4]
                 tooltip = f"Program: {r[1]}"
+                if pc:
+                    tooltip += f"\nParagraphs: {int(pc)}"
                 if cc is not None:
-                    tooltip += f"\nCyclomatic Complexity: {cc}"
-                if pc is not None:
-                    tooltip += f"\nParagraphs: {pc}"
+                    tooltip += f"\nTotal Cyclomatic CC: {int(cc)}"
+                if sc:
+                    tooltip += f"\nStatements: {int(sc)}"
                 nodes.append({
                     "id": r[0],
                     "label": r[1],
@@ -1933,26 +2048,36 @@ def get_knowledge_graph():
                     "title": tooltip,
                 })
 
-            # ── Copybook nodes ─────────────────────────────────────────────
-            cb_rows = con.execute(
-                """SELECT copybook_name, COUNT(DISTINCT program_uuid) AS consumers
+            # ── Copybook nodes (clean names from possibly-serialised strings) ─
+            cb_raw_rows = con.execute(
+                """SELECT copybook_name, COUNT(DISTINCT program_uuid) AS consumers,
+                          program_uuid
                    FROM copybook_use
                    GROUP BY copybook_name
                    ORDER BY consumers DESC
                    LIMIT 100"""
             ).fetchall()
-            cb_id_map: dict[str, str] = {}
-            for r in cb_rows:
-                cb_name = r[0]
-                cb_id = str(_uuid_mod.uuid5(_NS, f"copybook:{cb_name}"))
-                cb_id_map[cb_name] = cb_id
+            cb_id_map: dict[str, str] = {}   # raw_name → node_id
+            cb_clean_map: dict[str, str] = {}  # raw_name → clean_name
+            seen_cb: set[str] = set()
+            for r in cb_raw_rows:
+                raw_name = r[0]
+                clean = _clean_cb_name(raw_name)
+                if clean.upper() in seen_cb:
+                    # Still map the raw name so copy-edges can find it
+                    cb_id_map[raw_name] = str(_uuid_mod.uuid5(_NS, f"copybook:{clean.upper()}"))
+                    continue
+                seen_cb.add(clean.upper())
+                cb_id = str(_uuid_mod.uuid5(_NS, f"copybook:{clean.upper()}"))
+                cb_id_map[raw_name] = cb_id
+                cb_clean_map[raw_name] = clean
                 nodes.append({
                     "id": cb_id,
-                    "label": cb_name,
+                    "label": clean,
                     "kind": "copybook",
                     "group": "copybook",
                     "color": "#60c8fa",
-                    "title": f"Copybook: {cb_name}\nUsed by {r[1]} program(s)",
+                    "title": f"Copybook: {clean}\nUsed by {r[1]} program(s)",
                 })
 
             # ── JCL Job nodes ──────────────────────────────────────────────
@@ -2090,10 +2215,11 @@ async def transform_portfolio(body: dict = {}):
 
                 try:
                     top_progs = con.execute(
-                        """SELECT n.name, cm.cyclomatic_complexity, cm.paragraph_count
+                        """SELECT n.name, cm.cyclomatic, cm.statement_count
                            FROM complexity_metrics cm
                            JOIN nodes n ON cm.program_uuid = n.uuid
-                           ORDER BY cm.cyclomatic_complexity DESC
+                           GROUP BY UPPER(n.name)
+                           ORDER BY cm.cyclomatic DESC
                            LIMIT 5"""
                     ).fetchall()
                 except Exception:
@@ -2138,7 +2264,7 @@ async def transform_portfolio(body: dict = {}):
 
         # ── Formatted helpers ──────────────────────────────────────────────
         top_progs_txt = "\n".join(
-            f"  • {r[0]}: CC={r[1]}, paragraphs={r[2]}" for r in top_progs
+            f"  • {r[0]}: CC={r[1]}, statements={r[2]}" for r in top_progs
         ) or "  (no complexity data yet)"
 
         most_called_txt = "\n".join(

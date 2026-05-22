@@ -162,7 +162,7 @@ function navigate(page: string): void {
   if (page === 'spec')           { void loadProgramDropdowns(); void loadCurrentModel(); }
   if (page === 'transform')      void loadTransformPage();
   if (page === 'platform')       void loadPlatformPage();
-  if (page === 'pipeline')       _replayPipelineLog();
+  if (page === 'pipeline')       { _replayPipelineLog(); void loadRunHistory(); }
   if (page === 'coverage')       void loadCoverage();
   if (page === 'risks')          void loadRisks();
   if (page === 'settings')       void loadSettings();
@@ -209,34 +209,38 @@ async function loadDashboard(): Promise<void> {
       if (el) el.textContent = ((s as any)[f] ?? 0).toLocaleString();
     });
 
-    const cvCtx = ($<HTMLCanvasElement>('coverage-chart'))?.getContext('2d');
-    if (cvCtx) {
-      if (covChart) covChart.destroy();
-      covChart = new Chart(cvCtx, {
-        type: 'doughnut',
-        data: { labels: ['Parsed OK','Failed'], datasets: [{ data: [s.ok_files, s.total_files - s.ok_files], backgroundColor: ['#4ade80','#f87171'], borderWidth: 0 }] },
-        options: { plugins: { legend: { labels: { color: '#7e8c9a', font: { size: 12 } } } }, cutout: '70%' },
-      });
-    }
-
-    const lCtx = ($<HTMLCanvasElement>('layer-chart'))?.getContext('2d');
-    if (lCtx) {
-      if (layerChart) layerChart.destroy();
-      layerChart = new Chart(lCtx, {
-        type: 'bar',
-        data: {
-          labels: ['Programs','Paragraphs','Data Items','Stmts','Bus. Rules','Call Edges','Risks'],
-          datasets: [{ data: [s.programs, s.paragraphs, s.data_items, s.statements, s.business_rules, s.call_edges, s.risks],
-            backgroundColor: ['#006e74','#0097ab','#009ddc','#00afd9','#4ade80','#fbbf24','#f87171'], borderRadius: 4, borderWidth: 0 }],
-        },
-        options: { plugins: { legend: { display: false } }, scales: {
-          x: { ticks: { color: '#7e8c9a', font: { size: 11 } }, grid: { color: '#2b333f' } },
-          y: { ticks: { color: '#7e8c9a' }, grid: { color: '#2b333f' } },
-        }},
-      });
-    }
+    // Render data sections immediately (before charts so a chart error doesn't block them)
     renderBirdsEyeView(s);
     renderKnowledgeGraph(s);
+
+    // Charts — isolated so failures don't affect the data cards above
+    try {
+      const cvCtx = ($<HTMLCanvasElement>('coverage-chart'))?.getContext('2d');
+      if (cvCtx) {
+        if (covChart) covChart.destroy();
+        covChart = new Chart(cvCtx, {
+          type: 'doughnut',
+          data: { labels: ['Parsed OK','Failed'], datasets: [{ data: [s.ok_files, s.total_files - s.ok_files], backgroundColor: ['#4ade80','#f87171'], borderWidth: 0 }] },
+          options: { plugins: { legend: { labels: { color: '#7e8c9a', font: { size: 12 } } } }, cutout: '70%' },
+        });
+      }
+      const lCtx = ($<HTMLCanvasElement>('layer-chart'))?.getContext('2d');
+      if (lCtx) {
+        if (layerChart) layerChart.destroy();
+        layerChart = new Chart(lCtx, {
+          type: 'bar',
+          data: {
+            labels: ['Programs','Paragraphs','Data Items','Stmts','Bus. Rules','Call Edges','Risks'],
+            datasets: [{ data: [s.programs, s.paragraphs, s.data_items, s.statements, s.business_rules, s.call_edges, s.risks],
+              backgroundColor: ['#006e74','#0097ab','#009ddc','#00afd9','#4ade80','#fbbf24','#f87171'], borderRadius: 4, borderWidth: 0 }],
+          },
+          options: { plugins: { legend: { display: false } }, scales: {
+            x: { ticks: { color: '#7e8c9a', font: { size: 11 } }, grid: { color: '#2b333f' } },
+            y: { ticks: { color: '#7e8c9a' }, grid: { color: '#2b333f' } },
+          }},
+        });
+      }
+    } catch(chartErr) { console.warn('Chart render error:', chartErr); }
   } catch(e) {
     if (!isAbort(e)) { console.warn('Dashboard unavailable:', (e as Error).message); renderBirdsEyeView({} as Stats); }
   }
@@ -634,7 +638,13 @@ function copyDiagramSource(): void {
 async function loadProgramDropdowns(): Promise<void> {
   try {
     const data = await apiFetch<{ items: Program[] }>('/programs?limit=500');
-    programs = data.items ?? [];
+    // Deduplicate by name (server-side GROUP BY handles it, but guard client-side too)
+    const seen = new Set<string>();
+    programs = (data.items ?? []).filter(p => {
+      const k = (p.name ?? '').toUpperCase();
+      if (seen.has(k)) return false;
+      seen.add(k); return true;
+    });
     const opts = programs.map(p => `<option value="${p.name}">${p.name}</option>`).join('');
     ['spec-program'].forEach(id => {
       const el = $<HTMLSelectElement>(id);
@@ -1845,10 +1855,31 @@ function toggleASTNode(uuid: string): void {
   if (toggle) toggle.textContent = open ? '▶' : '▼';
 }
 
+let _cfgZoomLevel = 1;
+
+function cfgZoom(factor: number): void {
+  const container = $<HTMLElement>('cfg-container');
+  if (!container) return;
+  const svgEl = container.querySelector<SVGSVGElement>('svg');
+  if (!svgEl) return;
+  if (factor === 0) {
+    _cfgZoomLevel = 1;
+  } else {
+    _cfgZoomLevel = Math.min(5, Math.max(0.2, _cfgZoomLevel * factor));
+  }
+  svgEl.style.transform = `scale(${_cfgZoomLevel})`;
+  svgEl.style.transformOrigin = 'top left';
+  const info = $<HTMLElement>('cfg-info');
+  if (info && info.dataset.base) {
+    info.textContent = info.dataset.base + ` · zoom ${Math.round(_cfgZoomLevel * 100)}%`;
+  }
+}
+
 // CFG Visualization
 async function loadCFG(prog: string): Promise<void> {
   const container = $<HTMLElement>('cfg-container');
   if (!container) return;
+  _cfgZoomLevel = 1;
   container.innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px;">Loading CFG…</div>';
   try {
     const data = await apiFetch<{ mermaid: string; nodes: any[]; edges: any[] }>(`/programs/${encodeURIComponent(prog)}/cfg`);
@@ -1859,16 +1890,90 @@ async function loadCFG(prog: string): Promise<void> {
     container.innerHTML = '';
     const id = 'cfg-mmd-' + Date.now();
     const { svg } = await mermaid.render(id, data.mermaid);
-    container.innerHTML = svg;
-    const svgEl = container.querySelector('svg');
-    if (svgEl) (svgEl as HTMLElement).style.maxWidth = '100%';
-    const info = document.createElement('div');
-    info.style.cssText = 'font-size:11px;color:var(--muted);margin-top:8px;';
-    info.textContent = `${data.nodes?.length ?? 0} nodes · ${data.edges?.length ?? 0} edges`;
-    container.appendChild(info);
+    const wrapper = document.createElement('div');
+    wrapper.style.cssText = 'display:inline-block;transform-origin:top left;';
+    wrapper.innerHTML = svg;
+    container.appendChild(wrapper);
+    const svgEl = wrapper.querySelector<SVGSVGElement>('svg');
+    if (svgEl) svgEl.style.maxWidth = 'none';
+    const infoEl = $<HTMLElement>('cfg-info');
+    const base = `${prog} — ${data.nodes?.length ?? 0} nodes · ${data.edges?.length ?? 0} edges`;
+    if (infoEl) { infoEl.textContent = base + ' · zoom 100%'; infoEl.dataset.base = base; }
   } catch(e) {
     if (!isAbort(e)) container.innerHTML = `<div style="color:#f87171;padding:20px;">Error: ${(e as Error).message}</div>`;
   }
+}
+
+// ── Pipeline Run History ──────────────────────────────────────────────────────
+async function loadRunHistory(): Promise<void> {
+  const el = $<HTMLElement>('run-history-table');
+  if (!el) return;
+  try {
+    const data = await apiFetch<{ runs: any[] }>('/pipeline/runs');
+    const runs = data.runs ?? [];
+    if (!runs.length) {
+      el.innerHTML = '<div style="color:var(--muted);font-size:13px;text-align:center;padding:24px;">No pipeline runs recorded yet.</div>';
+      return;
+    }
+    el.innerHTML = `<table style="width:100%;border-collapse:collapse;">
+      <thead><tr>
+        <th style="text-align:left;padding:8px 10px;font-size:11px;color:var(--muted);border-bottom:1px solid var(--border);">Run ID</th>
+        <th style="text-align:left;padding:8px 10px;font-size:11px;color:var(--muted);border-bottom:1px solid var(--border);">Started</th>
+        <th style="text-align:left;padding:8px 10px;font-size:11px;color:var(--muted);border-bottom:1px solid var(--border);">Duration</th>
+        <th style="text-align:left;padding:8px 10px;font-size:11px;color:var(--muted);border-bottom:1px solid var(--border);">Status</th>
+        <th style="text-align:left;padding:8px 10px;font-size:11px;color:var(--muted);border-bottom:1px solid var(--border);">Programs</th>
+        <th style="text-align:left;padding:8px 10px;font-size:11px;color:var(--muted);border-bottom:1px solid var(--border);">Corpus</th>
+        <th style="padding:8px 10px;border-bottom:1px solid var(--border);"></th>
+      </tr></thead>
+      <tbody>
+        ${runs.map(r => {
+          const started = r.started_at ? new Date(r.started_at * 1000).toLocaleString() : '—';
+          const dur = (r.started_at && r.completed_at)
+            ? `${Math.round(r.completed_at - r.started_at)}s` : '—';
+          const statusColor = r.status === 'completed' ? '#4ade80' : r.status === 'running' ? '#fbbf24' : '#f87171';
+          const programs = r.stats?.programs ?? '—';
+          const corpus = (r.corpus ?? '').split('/').slice(-2).join('/') || r.corpus || '—';
+          return `<tr style="border-bottom:1px solid var(--border);">
+            <td style="padding:8px 10px;font-size:12px;font-family:monospace;color:var(--muted);">${r.id}</td>
+            <td style="padding:8px 10px;font-size:12px;">${started}</td>
+            <td style="padding:8px 10px;font-size:12px;color:var(--muted);">${dur}</td>
+            <td style="padding:8px 10px;"><span style="font-size:11px;font-weight:600;color:${statusColor};">${r.status.toUpperCase()}</span></td>
+            <td style="padding:8px 10px;font-size:12px;font-weight:600;color:#5ecdd1;">${programs}</td>
+            <td style="padding:8px 10px;font-size:11px;color:var(--muted);" title="${r.corpus ?? ''}">${corpus}</td>
+            <td style="padding:8px 10px;">
+              <button onclick="deleteRun('${r.id}')" class="btn btn-secondary" style="font-size:11px;padding:3px 8px;color:#f87171;border-color:#f87171;">Remove</button>
+            </td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>`;
+  } catch(e) {
+    if (!isAbort(e) && el) el.innerHTML = '<div style="color:#f87171;padding:12px;">Failed to load run history.</div>';
+  }
+}
+
+async function deleteRun(runId: string): Promise<void> {
+  if (!confirm(`Remove run ${runId} from history? This only removes the log entry — artifact data is not deleted.`)) return;
+  try {
+    await fetch(`/pipeline/runs/${runId}`, { method: 'DELETE' });
+    await loadRunHistory();
+    showToast('Run removed from history');
+  } catch(e) { showToast('Failed to remove run', 'error'); }
+}
+
+async function clearAllPipelineData(): Promise<void> {
+  if (!confirm('⚠ This will DELETE ALL parsed artifact data (programs, call graphs, business rules, etc.) and clear run history. The dashboard will reset to zero. Are you sure?')) return;
+  try {
+    const r = await fetch('/pipeline/clear-db', { method: 'POST' });
+    const data = await r.json();
+    if (data.ok) {
+      showToast('All artifact data cleared — dashboard will reset', 'ok');
+      await loadRunHistory();
+      void loadDashboard();
+    } else {
+      showToast('Clear failed: ' + (data.error ?? 'unknown'), 'error');
+    }
+  } catch(e) { showToast('Clear failed: ' + (e as Error).message, 'error'); }
 }
 
 // Symbol Table
@@ -2514,6 +2619,10 @@ Object.assign(window as any, {
   onKGNodeClick,
   closeKGPane,
   explainKGNode,
+  cfgZoom,
+  loadRunHistory,
+  deleteRun,
+  clearAllPipelineData,
   runPipeline,
   runSmoke,
   cancelPipeline,
