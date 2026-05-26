@@ -16,15 +16,16 @@ PROMPTS_DIR  = PROJECT_ROOT / "llm" / "prompts"
 _jinja = Environment(loader=FileSystemLoader(str(PROMPTS_DIR)), autoescape=False)
 
 
-def _call_llm(prompt: str) -> str:
+def _call_llm(prompt: str, max_tokens: int = 16384) -> str:
     """Call the configured LLM provider and return the response text."""
     provider = os.environ.get("LLM_PROVIDER", "openai").lower()
     if provider == "openai":
         from openai import OpenAI
         client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
-        model  = os.environ.get("OPENAI_MODEL", "gpt-4o")
+        model  = os.environ.get("LLM_MODEL") or os.environ.get("OPENAI_MODEL", "gpt-4o")
         resp   = client.chat.completions.create(
             model=model,
+            max_tokens=max_tokens,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
         )
@@ -32,14 +33,19 @@ def _call_llm(prompt: str) -> str:
     elif provider == "gemini":
         import google.generativeai as genai
         genai.configure(api_key=os.environ.get("GEMINI_API_KEY", ""))
-        model = genai.GenerativeModel(os.environ.get("GEMINI_MODEL", "gemini-2.0-flash"))
-        return model.generate_content(prompt).text or ""
+        model_name = os.environ.get("LLM_MODEL") or os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
+        model = genai.GenerativeModel(model_name)
+        resp = model.generate_content(
+            prompt,
+            generation_config=genai.types.GenerationConfig(max_output_tokens=min(max_tokens, 8192)),
+        )
+        return resp.text or ""
     elif provider == "anthropic":
         import anthropic
         client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
         resp = client.messages.create(
-            model=os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6"),
-            max_tokens=4096,
+            model=os.environ.get("LLM_MODEL") or os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6"),
+            max_tokens=min(max_tokens, 8192),
             messages=[{"role": "user", "content": prompt}],
         )
         return resp.content[0].text if resp.content else ""

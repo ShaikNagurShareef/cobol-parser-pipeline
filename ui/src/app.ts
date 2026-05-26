@@ -850,9 +850,6 @@ async function generateSpecPersonas(): Promise<void> {
 }
 
 async function generateComprehensiveSpec(): Promise<void> {
-  const prog = ($<HTMLSelectElement>('spec-program'))?.value ?? '';
-  if (!prog) { showToast('Select a program first', 'error'); return; }
-
   const btn = $<HTMLButtonElement>('spec-comp-btn');
   const progressEl = $<HTMLElement>('spec-progress');
   const progressMsg = $<HTMLElement>('spec-progress-msg');
@@ -861,20 +858,20 @@ async function generateComprehensiveSpec(): Promise<void> {
   const contentEl = $<HTMLElement>('spec-tab-content');
   const emptyState = $<HTMLElement>('spec-empty-state');
 
-  if (btn) { btn.disabled = true; btn.textContent = '⟳ Building comprehensive report…'; }
+  if (btn) { btn.disabled = true; btn.innerHTML = '⟳ Building portfolio report…'; }
   if (progressEl) progressEl.style.display = '';
-  if (progressMsg) progressMsg.textContent = 'Assembling all 7 artifact layers…';
+  if (progressMsg) progressMsg.textContent = 'Assembling all 7 artifact layers across entire corpus…';
   if (progressFill) progressFill.style.width = '0%';
   if (emptyState) emptyState.style.display = 'none';
 
-  // Clear old tabs
+  // Navigate to spec page and clear old tabs
+  navigate('spec');
   _personaResults = {};
   if (tabsEl) tabsEl.innerHTML = '';
   if (contentEl) contentEl.innerHTML = '';
 
-  // Add a single "Comprehensive Report" tab
   const COMP_PERSONA = 'comprehensive';
-  addPersonaTab(COMP_PERSONA, '📄 Comprehensive Report', 'pending', tabsEl, contentEl);
+  addPersonaTab(COMP_PERSONA, '📄 Portfolio Report', 'pending', tabsEl, contentEl);
   switchPersonaTab(COMP_PERSONA);
 
   let fullMarkdown = '';
@@ -883,7 +880,7 @@ async function generateComprehensiveSpec(): Promise<void> {
   try {
     const resp = await fetch('/generate-spec/comprehensive', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ program_name: prog }),
+      body: JSON.stringify({}),
       signal: sig(),
     });
     if (!resp.ok) throw new Error(await resp.text());
@@ -891,7 +888,8 @@ async function generateComprehensiveSpec(): Promise<void> {
     const reader = resp.body?.getReader();
     const decoder = new TextDecoder();
     let buf = '';
-    const TOTAL_SECTIONS = 16;
+    // 11 static DB sections + 6 LLM sections = 17
+    const TOTAL_SECTIONS = 17;
 
     while (reader) {
       const chunk = await reader.read();
@@ -910,7 +908,6 @@ async function generateComprehensiveSpec(): Promise<void> {
             const pct = Math.round((sectionCount / TOTAL_SECTIONS) * 100);
             if (progressFill) progressFill.style.width = pct + '%';
             if (progressMsg) progressMsg.textContent = `Section ${sectionCount}/${TOTAL_SECTIONS}: ${evt.title ?? ''}`;
-            // Live-update the tab content as sections arrive
             const div = $<HTMLElement>(`persona-content-${COMP_PERSONA}`);
             if (div) div.innerHTML = _renderMarkdown(fullMarkdown);
           } else if (evt.event === 'all_done') {
@@ -923,15 +920,17 @@ async function generateComprehensiveSpec(): Promise<void> {
   } catch(e) {
     if (!isAbort(e)) showToast(`Comprehensive report failed: ${(e as Error).message}`, 'error');
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = '📄 Comprehensive Report (100+ pages)'; }
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = '<svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg> Generate Comprehensive Report';
+    }
     if (progressEl) setTimeout(() => { if (progressEl) progressEl.style.display = 'none'; }, 3000);
     const mdBtn  = $<HTMLButtonElement>('spec-export-md');
     const pdfBtn = $<HTMLButtonElement>('spec-export-pdf');
     if (mdBtn)  mdBtn.disabled  = !fullMarkdown;
     if (pdfBtn) pdfBtn.disabled = !fullMarkdown;
-    // Update dot to green
     const dot = $<HTMLElement>(`persona-tab-dot-${COMP_PERSONA}`);
-    if (dot) dot.style.background = '#4ade80';
+    if (dot) dot.style.background = fullMarkdown ? '#4ade80' : '#f87171';
   }
 }
 

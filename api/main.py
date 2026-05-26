@@ -1201,249 +1201,420 @@ async def generate_spec_personas(body: dict):
 
 @app.post("/generate-spec/comprehensive", tags=["LLM"])
 async def generate_comprehensive_spec(body: dict):
-    """Generate a 100+ page consolidated specification from all 7 artifact layers.
+    """Portfolio-wide comprehensive modernisation specification.
 
-    Streams SSE events:  section_done {title, content}  |  all_done
+    Runs against the entire COBOL corpus — no program selection required.
+    Streams SSE events: section_done {title, content} | all_done
     """
-    program_name = body.get("program_name", "")
-    if not program_name:
-        raise HTTPException(400, "program_name required")
     if not _db_exists():
         raise HTTPException(503, "Pipeline database not found — run the pipeline first.")
 
     async def _stream():
         with _con() as con:
-            prog_uuid = _get_prog_uuid(con, program_name)
-            if not prog_uuid:
-                yield f"data: {json.dumps({'event':'error','message':f'Program {program_name!r} not found'})}\n\n"
-                return
+            # ── Portfolio-level aggregation ───────────────────────────────────
+            programs = _rows_to_list(con.execute(
+                "SELECT uuid, name, source_file, start_line, end_line FROM nodes WHERE kind='Program' ORDER BY name"
+            ).fetchall())
 
-            from llm.retrieval import assemble_program_slice
-            from llm.multi_agent import generate_persona_spec
+            total_paragraphs = (con.execute("SELECT COUNT(*) FROM nodes WHERE kind='Paragraph'").fetchone() or [0])[0]
+            total_data_items = (con.execute("SELECT COUNT(*) FROM data_items").fetchone() or [0])[0]
+            total_biz_rules  = (con.execute("SELECT COUNT(*) FROM business_rules").fetchone() or [0])[0]
+            total_risks      = (con.execute("SELECT COUNT(*) FROM risk_register").fetchone() or [0])[0]
+            total_cfg        = (con.execute("SELECT COUNT(*) FROM control_flow").fetchone() or [0])[0]
+            total_calls      = (con.execute("SELECT COUNT(*) FROM call_graph").fetchone() or [0])[0]
+            total_file_ops   = (con.execute("SELECT COUNT(*) FROM file_io").fetchone() or [0])[0]
+            total_jcl        = (con.execute("SELECT COUNT(*) FROM jcl_program_binding").fetchone() or [0])[0]
+            total_arith      = (con.execute("SELECT COUNT(*) FROM arithmetic_specs").fetchone() or [0])[0]
+            total_conds_88   = (con.execute("SELECT COUNT(*) FROM conditions_88").fetchone() or [0])[0]
 
-            slice_data = assemble_program_slice(prog_uuid, con)
+            risk_high   = (con.execute("SELECT COUNT(*) FROM risk_register WHERE severity='HIGH'").fetchone() or [0])[0]
+            risk_med    = (con.execute("SELECT COUNT(*) FROM risk_register WHERE severity='MEDIUM'").fetchone() or [0])[0]
+            risk_low    = (con.execute("SELECT COUNT(*) FROM risk_register WHERE severity='LOW'").fetchone() or [0])[0]
 
-            # Pull raw DB data for the comprehensive sections
-            paragraphs = _rows_to_list(con.execute(
-                "SELECT uuid, name, start_line, end_line FROM nodes WHERE parent_uuid=? AND kind='Paragraph' ORDER BY start_line",
-                (prog_uuid,)).fetchall())
-            data_items = _rows_to_list(con.execute(
-                "SELECT name, level, pic, usage, canonical_kind, precision, scale, signed, length, copybook_origin FROM data_items WHERE program_uuid=? ORDER BY start_line",
-                (prog_uuid,)).fetchall())
-            biz_rules = _rows_to_list(con.execute(
-                "SELECT kind, predicate_raw, predicate_resolved, then_summary, else_summary, line FROM business_rules WHERE program_uuid=? ORDER BY line",
-                (prog_uuid,)).fetchall())
-            cfg_edges = _rows_to_list(con.execute(
-                """SELECT n1.name AS from_name, n2.name AS to_name, cf.edge_type
-                   FROM control_flow cf
-                   JOIN nodes n1 ON n1.uuid=cf.from_uuid
-                   JOIN nodes n2 ON n2.uuid=cf.to_uuid
-                   WHERE n1.parent_uuid=? OR n2.parent_uuid=?
-                   ORDER BY cf.edge_type, n1.name""",
-                (prog_uuid, prog_uuid)).fetchall())
-            call_edges = _rows_to_list(con.execute(
-                """SELECT n2.name AS callee, cg.call_type, cg.is_resolved
-                   FROM call_graph cg
-                   LEFT JOIN nodes n2 ON n2.uuid=cg.callee_uuid
-                   WHERE cg.caller_uuid=?""",
-                (prog_uuid,)).fetchall())
-            file_ops = _rows_to_list(con.execute(
-                "SELECT file_name, operation FROM file_io WHERE program_uuid=? ORDER BY file_name",
-                (prog_uuid,)).fetchall())
-            risks = _rows_to_list(con.execute(
-                "SELECT kind, severity, note, line FROM risk_register WHERE program_uuid=? ORDER BY severity, kind",
-                (prog_uuid,)).fetchall())
-            arith = _rows_to_list(con.execute(
-                "SELECT expression_text, result_field FROM arithmetic_specs WHERE program_uuid=? LIMIT 40",
-                (prog_uuid,)).fetchall())
-            conds_88 = _rows_to_list(con.execute(
-                """SELECT di_name.name AS parent_name, c.name AS condition_name, c.value_raw
+            # Per-program stats for inventory table
+            prog_stats = []
+            for p in programs:
+                pu = p["uuid"]
+                para_cnt  = (con.execute("SELECT COUNT(*) FROM nodes WHERE kind='Paragraph' AND parent_uuid=?", (pu,)).fetchone() or [0])[0]
+                di_cnt    = (con.execute("SELECT COUNT(*) FROM data_items WHERE program_uuid=?", (pu,)).fetchone() or [0])[0]
+                br_cnt    = (con.execute("SELECT COUNT(*) FROM business_rules WHERE program_uuid=?", (pu,)).fetchone() or [0])[0]
+                risk_cnt  = (con.execute("SELECT COUNT(*) FROM risk_register WHERE program_uuid=?", (pu,)).fetchone() or [0])[0]
+                high_cnt  = (con.execute("SELECT COUNT(*) FROM risk_register WHERE program_uuid=? AND severity='HIGH'", (pu,)).fetchone() or [0])[0]
+                loc       = (p.get("end_line") or 0) - (p.get("start_line") or 0) + 1
+                prog_stats.append({**p, "paragraphs": para_cnt, "data_items": di_cnt,
+                                   "biz_rules": br_cnt, "risks": risk_cnt, "high_risks": high_cnt, "loc": loc})
+
+            # All business rules
+            all_biz_rules = _rows_to_list(con.execute(
+                """SELECT n.name AS program, br.kind, br.predicate_raw, br.predicate_resolved,
+                          br.then_summary, br.else_summary, br.line
+                   FROM business_rules br JOIN nodes n ON n.uuid=br.program_uuid
+                   ORDER BY n.name, br.line"""
+            ).fetchall())
+
+            # All data items (full)
+            all_data_items = _rows_to_list(con.execute(
+                """SELECT n.name AS program, di.name, di.level, di.pic, di.usage,
+                          di.canonical_kind, di.precision, di.scale, di.signed, di.copybook_origin
+                   FROM data_items di JOIN nodes n ON n.uuid=di.program_uuid
+                   ORDER BY n.name, di.start_line"""
+            ).fetchall())
+
+            # Copybook-level shared data items
+            shared_di = _rows_to_list(con.execute(
+                """SELECT copybook_origin, COUNT(*) AS cnt, GROUP_CONCAT(DISTINCT name) AS sample
+                   FROM data_items WHERE copybook_origin IS NOT NULL AND copybook_origin != ''
+                   GROUP BY copybook_origin ORDER BY cnt DESC"""
+            ).fetchall())
+
+            # All 88-level conditions
+            all_conds_88 = _rows_to_list(con.execute(
+                """SELECT n.name AS program, di.name AS parent_name, c.name AS condition_name, c.value_raw
                    FROM conditions_88 c
-                   JOIN data_items di_name ON di_name.uuid=c.parent_uuid
-                   WHERE di_name.program_uuid=? ORDER BY parent_name""",
-                (prog_uuid,)).fetchall())
-            jcl_bindings = _rows_to_list(con.execute(
-                "SELECT job_name, step_name, dd_name, dataset_name, cobol_logical_file FROM jcl_program_binding WHERE program_uuid=?",
-                (prog_uuid,)).fetchall())
+                   JOIN data_items di ON di.uuid=c.parent_uuid
+                   JOIN nodes n ON n.uuid=di.program_uuid
+                   ORDER BY n.name, di.name"""
+            ).fetchall())
 
-        prog_node = slice_data.get("program", {})
-        prog_name = prog_node.get("name", program_name)
+            # All arithmetic specs
+            all_arith = _rows_to_list(con.execute(
+                """SELECT n.name AS program, a.expression_text, a.result_field
+                   FROM arithmetic_specs a JOIN nodes n ON n.uuid=a.program_uuid
+                   ORDER BY n.name"""
+            ).fetchall())
 
-        def _table(headers: list[str], rows: list[dict], keys: list[str], limit: int = 200) -> str:
+            # CFG edge type distribution
+            cfg_dist = _rows_to_list(con.execute(
+                "SELECT edge_type, COUNT(*) AS cnt FROM control_flow GROUP BY edge_type ORDER BY cnt DESC"
+            ).fetchall())
+
+            # All call edges
+            all_calls = _rows_to_list(con.execute(
+                """SELECT n1.name AS caller, COALESCE(n2.name, cg.callee_name) AS callee,
+                          cg.call_type, cg.is_resolved
+                   FROM call_graph cg
+                   JOIN nodes n1 ON n1.uuid=cg.caller_uuid
+                   LEFT JOIN nodes n2 ON n2.uuid=cg.callee_uuid
+                   ORDER BY n1.name"""
+            ).fetchall())
+
+            # All file I/O
+            all_file_ops = _rows_to_list(con.execute(
+                """SELECT n.name AS program, fi.file_name, fi.operation
+                   FROM file_io fi JOIN nodes n ON n.uuid=fi.program_uuid
+                   ORDER BY n.name, fi.file_name"""
+            ).fetchall())
+
+            # All JCL bindings
+            all_jcl = _rows_to_list(con.execute(
+                """SELECT job_name, step_name, program_name, dd_name, dataset_name,
+                          cobol_logical_file, disposition
+                   FROM jcl_program_binding ORDER BY job_name, step_name"""
+            ).fetchall())
+
+            # All risks
+            all_risks = _rows_to_list(con.execute(
+                """SELECT n.name AS program, r.kind, r.severity, r.note, r.line
+                   FROM risk_register r JOIN nodes n ON n.uuid=r.program_uuid
+                   ORDER BY CASE r.severity WHEN 'HIGH' THEN 0 WHEN 'MEDIUM' THEN 1 ELSE 2 END, n.name"""
+            ).fetchall())
+
+            # Most complex programs (by CFG edge count)
+            complexity = _rows_to_list(con.execute(
+                """SELECT n.name AS program, COUNT(*) AS cfg_edges
+                   FROM control_flow cf
+                   JOIN nodes n ON n.uuid=cf.from_uuid
+                   WHERE n.kind='Paragraph'
+                   GROUP BY n.parent_uuid ORDER BY cfg_edges DESC LIMIT 20"""
+            ).fetchall())
+
+        def _table(headers: list[str], rows: list[dict], keys: list[str]) -> str:
             if not rows:
                 return "_None recorded._\n"
-            hdr = "| " + " | ".join(headers) + " |\n"
-            sep = "|" + "|".join("---" for _ in headers) + "|\n"
+            hdr  = "| " + " | ".join(headers) + " |\n"
+            sep  = "|" + "|".join("---" for _ in headers) + "|\n"
             body = ""
-            for r in rows[:limit]:
-                cells = [str(r.get(k, "") or "").replace("|", "\\|").replace("\n", " ")[:120] for k in keys]
+            for r in rows:
+                cells = [str(r.get(k, "") or "").replace("|", "\\|").replace("\n", " ")[:160] for k in keys]
                 body += "| " + " | ".join(cells) + " |\n"
-            if len(rows) > limit:
-                body += f"\n_…and {len(rows)-limit} more rows._\n"
             return hdr + sep + body
 
         sections = []
 
-        # ── Section 1: Executive Summary ─────────────────────────────────────
-        sections.append(("Executive Summary", f"""# {prog_name} — Comprehensive Modernisation Specification
+        # ── Section 1: Portfolio Executive Summary ────────────────────────────
+        sections.append(("Portfolio Executive Summary", f"""# COBOL Modernisation — Complete Portfolio Specification
 
-**Program:** `{prog_name}`
-**Source file:** `{prog_node.get('source_file','').split('/')[-1]}`
-**Lines of code:** {prog_node.get('end_line',0) - prog_node.get('start_line',0) + 1}
-**Paragraphs:** {len(paragraphs)}
-**Data items:** {len(data_items)}
-**Business rules:** {len(biz_rules)}
-**Migration risks:** {len(risks)} ({sum(1 for r in risks if r['severity']=='HIGH')} HIGH, {sum(1 for r in risks if r['severity']=='MEDIUM')} MEDIUM, {sum(1 for r in risks if r['severity']=='LOW')} LOW)
-**Call edges:** {len(call_edges)}
-**File I/O operations:** {len(file_ops)}
-**CFG edges:** {len(cfg_edges)}
-**JCL dataset bindings:** {len(jcl_bindings)}
+> Machine-generated from the 7-layer ANTLR4 artifact pipeline across the entire CardDemo corpus.
+> Every fact is grounded in parsed artifacts. No source code was passed to the LLM.
 
-This document is machine-generated from the 7-layer ANTLR4 artifact pipeline. Every fact is grounded in parsed artifacts — no source code was passed to the LLM.
+---
+
+## Portfolio Metrics
+
+| Metric | Count |
+|--------|-------|
+| COBOL Programs | {len(programs)} |
+| Total Paragraphs | {total_paragraphs:,} |
+| Data Items (all programs) | {total_data_items:,} |
+| 88-Level Named Conditions | {total_conds_88:,} |
+| Business Rules extracted | {total_biz_rules:,} |
+| Arithmetic Specifications | {total_arith:,} |
+| CFG Edges (intra-program) | {total_cfg:,} |
+| Inter-Program Call Edges | {total_calls:,} |
+| File I/O Operations | {total_file_ops:,} |
+| JCL Dataset Bindings | {total_jcl:,} |
+| Migration Risks | {total_risks:,} ({risk_high} HIGH · {risk_med} MEDIUM · {risk_low} LOW) |
+
+### CFG Edge Type Distribution
+{chr(10).join(f"- `{r['edge_type']}`: {r['cnt']:,}" for r in cfg_dist)}
+
+### Most Complex Programs (by CFG edge count)
+{chr(10).join(f"- `{r['program']}`: {r['cfg_edges']} edges" for r in complexity[:10])}
 """))
 
-        # ── Section 2: Paragraph Inventory ───────────────────────────────────
-        sections.append(("Paragraph Inventory", f"""## 1. Paragraph Inventory
+        # ── Section 2: Program Inventory ──────────────────────────────────────
+        sections.append(("Program Inventory", f"""## 1. Program Inventory
 
-All {len(paragraphs)} paragraphs in `{prog_name}`, in source order:
+All {len(programs)} COBOL programs in the corpus:
 
 """ + _table(
-            ["Paragraph Name", "Start Line", "End Line", "Lines"],
-            [{**p, "Lines": str(p.get("end_line",0) - p.get("start_line",0) + 1)} for p in paragraphs],
-            ["name", "start_line", "end_line", "Lines"],
+            ["Program", "LOC", "Paragraphs", "Data Items", "Business Rules", "Risks", "HIGH Risks"],
+            prog_stats,
+            ["name", "loc", "paragraphs", "data_items", "biz_rules", "risks", "high_risks"],
         )))
 
-        # ── Section 3: Data Dictionary ────────────────────────────────────────
-        sections.append(("Data Dictionary", f"""## 2. Data Dictionary
+        # ── Section 3: Complete Data Dictionary ───────────────────────────────
+        sections.append(("Complete Data Dictionary", f"""## 2. Complete Data Dictionary
 
-All {len(data_items)} data items defined in `{prog_name}`:
+All {total_data_items:,} data items across all {len(programs)} programs:
 
 """ + _table(
-            ["Name", "Level", "PIC", "USAGE", "Canonical Type", "Copybook"],
-            data_items,
-            ["name", "level", "pic", "usage", "canonical_kind", "copybook_origin"],
+            ["Program", "Name", "Level", "PIC", "USAGE", "Canonical Type", "Copybook"],
+            all_data_items,
+            ["program", "name", "level", "pic", "usage", "canonical_kind", "copybook_origin"],
         )))
 
-        # ── Section 4: 88-Level Conditions ────────────────────────────────────
-        sections.append(("88-Level Conditions", f"""## 3. 88-Level Conditions (Named Predicates)
+        # ── Section 4: Shared Copybook Data ───────────────────────────────────
+        if shared_di:
+            sections.append(("Shared Copybook Data", f"""## 3. Shared Copybook Data Items
 
-{len(conds_88)} named conditions defined. These are resolved to VALUE clauses in business rules:
-
-""" + _table(
-            ["Parent Variable", "Condition Name", "Value(s)"],
-            conds_88,
-            ["parent_name", "condition_name", "value_raw"],
-        )))
-
-        # ── Section 5: Business Rules ─────────────────────────────────────────
-        sections.append(("Business Rules", f"""## 4. Business Rules
-
-All {len(biz_rules)} IF/EVALUATE conditions extracted from `{prog_name}`:
+Data items sourced from shared copybooks — these represent the enterprise data model:
 
 """ + _table(
-            ["Kind", "Predicate (Raw)", "Predicate (Resolved)", "Then", "Else", "Line"],
-            biz_rules,
-            ["kind", "predicate_raw", "predicate_resolved", "then_summary", "else_summary", "line"],
-        )))
-
-        # ── Section 6: Arithmetic Specifications ──────────────────────────────
-        if arith:
-            sections.append(("Arithmetic Specifications", f"""## 5. Arithmetic Specifications
-
-{len(arith)} COMPUTE/ADD/SUBTRACT/MULTIPLY/DIVIDE operations. All numeric fields are COMP-3 packed decimal → emit as `BigDecimal` with `RoundingMode.HALF_EVEN`:
-
-""" + _table(
-                ["Expression", "Result Field"],
-                arith,
-                ["expression_text", "result_field"],
+                ["Copybook", "Field Count", "Sample Fields"],
+                shared_di,
+                ["copybook_origin", "cnt", "sample"],
             )))
 
-        # ── Section 7: Control Flow Graph ─────────────────────────────────────
-        edge_types = {}
-        for e in cfg_edges:
-            edge_types[e.get("edge_type","")] = edge_types.get(e.get("edge_type",""), 0) + 1
-        sections.append(("Control Flow Graph", f"""## 6. Control Flow Graph
+        # ── Section 5: 88-Level Conditions ────────────────────────────────────
+        sections.append(("88-Level Named Conditions", f"""## 4. 88-Level Named Conditions
 
-**Total CFG edges:** {len(cfg_edges)}
-
-Edge type breakdown:
-""" + "\n".join(f"- `{k}`: {v}" for k, v in sorted(edge_types.items())) + "\n\n" +
-            _table(["From Paragraph", "To Paragraph", "Edge Type"], cfg_edges, ["from_name", "to_name", "edge_type"])))
-
-        # ── Section 8: Inter-Program Calls ────────────────────────────────────
-        sections.append(("Inter-Program Call Graph", f"""## 7. Inter-Program Call Graph
-
-`{prog_name}` makes {len(call_edges)} outbound call(s):
+All {total_conds_88:,} named boolean conditions across the portfolio. These map directly to enum types and predicate methods in Java:
 
 """ + _table(
-            ["Callee Program", "Call Type", "Resolved?"],
-            [{**c, "Resolved?": "✓" if c.get("is_resolved") else "✗ (dynamic)"} for c in call_edges],
-            ["callee", "call_type", "Resolved?"],
+            ["Program", "Parent Variable", "Condition Name", "Value(s)"],
+            all_conds_88,
+            ["program", "parent_name", "condition_name", "value_raw"],
+        )))
+
+        # ── Section 6: Business Rules Catalog ─────────────────────────────────
+        sections.append(("Business Rules Catalog", f"""## 5. Business Rules Catalog
+
+All {total_biz_rules:,} IF/EVALUATE conditions extracted across the entire portfolio:
+
+""" + _table(
+            ["Program", "Kind", "Predicate (Raw)", "Predicate (Resolved)", "Then", "Else", "Line"],
+            all_biz_rules,
+            ["program", "kind", "predicate_raw", "predicate_resolved", "then_summary", "else_summary", "line"],
+        )))
+
+        # ── Section 7: Arithmetic Specifications ──────────────────────────────
+        if all_arith:
+            sections.append(("Arithmetic Specifications", f"""## 6. Arithmetic Specifications
+
+All {total_arith:,} COMPUTE/ADD/SUBTRACT/MULTIPLY/DIVIDE operations.
+All COMP-3 packed-decimal fields → emit as `BigDecimal` with `RoundingMode.HALF_EVEN` in Java:
+
+""" + _table(
+                ["Program", "Expression", "Result Field"],
+                all_arith,
+                ["program", "expression_text", "result_field"],
+            )))
+
+        # ── Section 8: Cross-Program Call Graph ───────────────────────────────
+        resolved = sum(1 for c in all_calls if c.get("is_resolved"))
+        sections.append(("Cross-Program Call Graph", f"""## 7. Cross-Program Call Graph
+
+**Total call edges:** {len(all_calls)} ({resolved} resolved · {len(all_calls)-resolved} dynamic/unresolved)
+
+""" + _table(
+            ["Caller", "Callee", "Call Type", "Resolved"],
+            [{**c, "Resolved": "✓" if c.get("is_resolved") else "✗"} for c in all_calls],
+            ["caller", "callee", "call_type", "Resolved"],
         )))
 
         # ── Section 9: File I/O ───────────────────────────────────────────────
         sections.append(("File I/O Operations", f"""## 8. File I/O Operations
 
-""" + _table(["Logical File Name", "Operation"], file_ops, ["file_name", "operation"])))
-
-        # ── Section 10: JCL Dataset Bindings ─────────────────────────────────
-        if jcl_bindings:
-            sections.append(("JCL Dataset Bindings", f"""## 9. JCL Dataset Bindings
-
-JCL DD names linked to this program's logical files:
+All {total_file_ops:,} file access operations across the portfolio:
 
 """ + _table(
-                ["Job", "Step", "DD Name", "Dataset DSN", "COBOL Logical File"],
-                jcl_bindings,
-                ["job_name", "step_name", "dd_name", "dataset_name", "cobol_logical_file"],
-            )))
-
-        # ── Section 11: Migration Risk Register ──────────────────────────────
-        sections.append(("Migration Risk Register", f"""## 10. Migration Risk Register
-
-{len(risks)} risks identified ({sum(1 for r in risks if r['severity']=='HIGH')} HIGH, {sum(1 for r in risks if r['severity']=='MEDIUM')} MEDIUM, {sum(1 for r in risks if r['severity']=='LOW')} LOW):
-
-""" + _table(
-            ["Risk Kind", "Severity", "Note", "Line"],
-            sorted(risks, key=lambda r: {"HIGH":0,"MEDIUM":1,"LOW":2}.get(r.get("severity",""),3)),
-            ["kind", "severity", "note", "line"],
+            ["Program", "Logical File Name", "Operation"],
+            all_file_ops,
+            ["program", "file_name", "operation"],
         )))
 
-        # ── Sections 12-17: LLM-generated personas ───────────────────────────
-        import concurrent.futures
-        from llm.multi_agent import generate_persona_spec
-        persona_map = {
-            "business_summary":   "11. Business Summary",
-            "highlevel_arch":     "12. High-Level Architecture",
-            "lowlevel_arch":      "13. Low-Level Architecture",
-            "functional_spec":    "14. Functional Specification",
-            "technical_spec":     "15. Technical Specification",
-            "modernization_spec": "16. Modernisation Specification",
-        }
+        # ── Section 10: JCL Dataset Bindings ─────────────────────────────────
+        sections.append(("JCL Dataset Bindings", f"""## 9. JCL Dataset Bindings
 
-        loop = asyncio.get_event_loop()
-        async def _run_persona(pkey: str, ptitle: str):
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                result = await loop.run_in_executor(
-                    pool, generate_persona_spec, pkey, program_name, "program", prog_uuid
-                )
-            content = result.get("content", "")
-            return ptitle, f"## {ptitle}\n\n{content}"
+All {total_jcl:,} JCL DD→COBOL logical file bindings — the complete dataset lineage:
 
-        # Stream the static sections first
+""" + _table(
+            ["Job", "Step", "COBOL Program", "DD Name", "Dataset DSN", "COBOL Logical File", "DISP"],
+            all_jcl,
+            ["job_name", "step_name", "program_name", "dd_name", "dataset_name", "cobol_logical_file", "disposition"],
+        )))
+
+        # ── Section 11: Portfolio Risk Register ───────────────────────────────
+        sections.append(("Portfolio Risk Register", f"""## 10. Portfolio Risk Register
+
+**{total_risks:,} risks** across the portfolio: **{risk_high} HIGH** · {risk_med} MEDIUM · {risk_low} LOW
+
+""" + _table(
+            ["Program", "Risk Kind", "Severity", "Note", "Line"],
+            all_risks,
+            ["program", "kind", "severity", "note", "line"],
+        )))
+
+        # Stream static sections first
         for title, content in sections:
             yield f"data: {json.dumps({'event':'section_done','title':title,'content':content})}\n\n"
             await asyncio.sleep(0)
 
-        # Run all personas in parallel then stream as they finish
-        tasks = [_run_persona(k, v) for k, v in persona_map.items()]
-        for coro in asyncio.as_completed(tasks):
-            try:
-                ptitle, content = await coro
-                yield f"data: {json.dumps({'event':'section_done','title':ptitle,'content':content})}\n\n"
-            except Exception as exc:
-                yield f"data: {json.dumps({'event':'section_done','title':'Error','content':f'LLM section failed: {exc}'})}\n\n"
-            await asyncio.sleep(0)
+        # ── LLM sections: portfolio-level analysis ────────────────────────────
+        import concurrent.futures
+        from llm.multi_agent import _call_llm
+
+        portfolio_ctx = f"""You are a senior enterprise architect analysing a COBOL modernisation programme.
+
+## Portfolio Overview
+- {len(programs)} COBOL programs: {', '.join(p['name'] for p in programs[:20])}{'…' if len(programs)>20 else ''}
+- {total_paragraphs:,} paragraphs · {total_data_items:,} data items · {total_biz_rules:,} business rules
+- {total_risks:,} migration risks ({risk_high} HIGH, {risk_med} MEDIUM, {risk_low} LOW)
+- {total_calls:,} inter-program call edges ({resolved} resolved)
+- {total_jcl:,} JCL dataset bindings · {total_file_ops:,} file I/O operations
+- CFG: {total_cfg:,} edges ({', '.join(f"{r['edge_type']}:{r['cnt']}" for r in cfg_dist)})
+- Top complex programs: {', '.join(f"{r['program']}({r['cfg_edges']} edges)" for r in complexity[:5])}
+
+## Business Rules (sample — top 30)
+{chr(10).join(f"- [{r['program']}] {r['predicate_raw']} → {r['then_summary']}" for r in all_biz_rules[:30])}
+
+## High Risks
+{chr(10).join(f"- [{r['program']}] {r['kind']}: {r['note']}" for r in all_risks if r.get('severity')=='HIGH')[:20]}
+"""
+
+        llm_sections = [
+            ("11. Business Domain Analysis", f"""{portfolio_ctx}
+
+Task: Write a thorough **Business Domain Analysis** covering:
+1. What business domain this system serves (banking, credit card operations, etc.)
+2. The key business capabilities implemented across the {len(programs)} programs
+3. The primary data entities and their relationships (inferred from the data dictionary)
+4. The business transaction flows (sign-on, card management, account operations, reporting, etc.)
+5. The business rules that encode regulatory or compliance logic
+6. Dependencies and integration points (JCL batch flows, CICS online transactions)
+
+Be exhaustive. Reference specific program names, data item names, and business rule predicates where relevant.
+Use headers, bullet lists, and tables. Aim for depth — this section will guide business stakeholder reviews."""),
+
+            ("12. Modernisation Strategy & Target Architecture", f"""{portfolio_ctx}
+
+Task: Design a complete **Modernisation Strategy and Target Architecture** for migrating this {len(programs)}-program COBOL portfolio to a modern Java/Spring Boot microservices platform. Cover:
+1. Recommended migration pattern (Strangler Fig recommended given CICS transaction structure)
+2. Microservice decomposition — map COBOL programs to bounded contexts and services
+3. Target technology stack (Spring Boot, Spring Batch, PostgreSQL, Kafka, etc.)
+4. CICS transaction → REST API mapping (each TRANSID becomes an endpoint)
+5. JCL batch job → Spring Batch job mapping
+6. Data migration strategy (VSAM/COBOL files → relational/NoSQL)
+7. COMP-3 BigDecimal handling strategy
+8. Session/COMMAREA state management → stateless REST equivalent
+9. Phased migration roadmap with milestones
+
+Be specific. Reference actual program names and call-graph topology."""),
+
+            ("13. Functional Specifications", f"""{portfolio_ctx}
+
+Task: Write complete **Functional Specifications** for the modernised system. Cover:
+1. User management functions (COUSR* programs)
+2. Account management functions (COACC*, COADM* programs)
+3. Transaction processing functions (COTRN* programs)
+4. Reporting and statement functions (CORPT*, COBIL* programs)
+5. Input validation and error handling patterns (extracted from business rules)
+6. Screen/form specifications (BMS map equivalents as REST request/response schemas)
+7. Batch processing specifications (JCL job→Spring Batch equivalents)
+
+For each function: inputs, processing logic (from business rules), outputs, error conditions.
+Be exhaustive — every extracted business rule should appear in at least one functional spec."""),
+
+            ("14. Technical Specifications", f"""{portfolio_ctx}
+
+Task: Write detailed **Technical Specifications** for the Java implementation. Cover:
+1. Package structure and module layout
+2. Entity/JPA class definitions for all major data items (with BigDecimal for COMP-3 fields)
+3. Repository interfaces (one per VSAM file / data entity)
+4. Service class designs (one per COBOL program, preserving business rule logic)
+5. REST controller designs (CICS transactions → @RestController)
+6. Spring Batch job and step definitions (JCL jobs → JobBuilder chains)
+7. Exception hierarchy (mapped from COBOL error conditions and risk patterns)
+8. BigDecimal arithmetic patterns for all identified arithmetic specs
+9. 88-level conditions → Java enum types or predicate methods
+
+Include class/method signatures. Reference specific COBOL constructs where relevant."""),
+
+            ("15. Testing Strategy", f"""{portfolio_ctx}
+
+Task: Write a comprehensive **Testing Strategy** for the modernisation. Cover:
+1. Unit test coverage requirements (one test per business rule — {total_biz_rules:,} target test cases)
+2. Integration test approach (real DB, no mocks — based on existing pipeline architecture)
+3. Parallel-run acceptance criteria (COBOL output vs Java output reconciliation)
+4. Batch job regression test framework (JCL job → Spring Batch golden-output comparison)
+5. Performance benchmarks (COBOL batch throughput targets for Spring Batch)
+6. Risk-driven test prioritisation (HIGH risks first: {risk_high} items)
+7. Data migration validation tests
+8. CICS transaction → REST API contract tests
+
+Be specific. Reference program names and business rules as test identifiers."""),
+
+            ("16. Implementation Roadmap", f"""{portfolio_ctx}
+
+Task: Write a detailed **Implementation Roadmap** with phased delivery. Cover:
+1. Phase 0 — Foundation (Spring Boot project, CI/CD, test harness, 0 business programs)
+2. Phase 1 — Core Entities (data migration, JPA entities, repository layer)
+3. Phase 2 — Online Transactions (CICS → REST: start with lowest-risk programs)
+4. Phase 3 — Batch Jobs (JCL → Spring Batch: start with simplest jobs)
+5. Phase 4 — High-Risk Programs (programs with HIGH migration risks)
+6. Phase 5 — Parallel Run (both systems live, output reconciliation)
+7. Phase 6 — Cutover and Decommission
+
+For each phase: programs included, deliverables, acceptance criteria, estimated effort (story points),
+risks and mitigations. Order phases using the call-graph topology (leaves before hubs).
+Reference specific program names throughout."""),
+        ]
+
+        def _run_llm_section(title: str, prompt: str) -> tuple[str, str]:
+            content = _call_llm(prompt, max_tokens=16384)
+            return title, f"## {title}\n\n{content}"
+
+        loop = asyncio.get_event_loop()
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+            futures = {loop.run_in_executor(pool, _run_llm_section, t, p): t for t, p in llm_sections}
+            for coro in asyncio.as_completed(list(futures.keys())):
+                try:
+                    ptitle, content = await coro
+                    yield f"data: {json.dumps({'event':'section_done','title':ptitle,'content':content})}\n\n"
+                except Exception as exc:
+                    yield f"data: {json.dumps({'event':'section_done','title':'LLM Error','content':str(exc)})}\n\n"
+                await asyncio.sleep(0)
 
         yield f"data: {json.dumps({'event':'all_done'})}\n\n"
 
