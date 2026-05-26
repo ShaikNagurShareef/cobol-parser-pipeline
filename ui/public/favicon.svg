@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 220" width="32" height="32">
+  <rect width="220" height="220" fill="#1c1c1c" rx="20"/>
+  <!-- U -->
+  <text x="8" y="110" font-family="'Arial Black','Arial',sans-serif" font-weight="900" font-size="108" fill="#ffffff">U</text>
+  <!-- dot -->
+  <rect x="138" y="22" width="38" height="38" fill="#ffffff"/>
+  <!-- S -->
+  <text x="8" y="215" font-family="'Arial Black','Arial',sans-serif" font-weight="900" font-size="108" fill="#ffffff">S</text>
+  <!-- T -->
+  <text x="122" y="215" font-family="'Arial Black','Arial',sans-serif" font-weight="900" font-size="108" fill="#ffffff">T</text>
+</svg>

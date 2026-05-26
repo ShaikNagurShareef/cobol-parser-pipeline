@@ -410,47 +410,46 @@ async function explainKGNode(): Promise<void> {
   const btn     = $<HTMLButtonElement>('kg-explain-btn');
   if (!explain) return;
   if (btn) { btn.disabled = true; btn.textContent = '⟳ Generating…'; }
-  explain.textContent = '';
+  explain.innerHTML = '';
 
   const { id, label, kind } = _kgSelectedNode;
 
   if (kind === 'program') {
     try {
-      explain.textContent = '⟳ Fetching program context…';
-      // Resolve the program's canonical UUID (handles duplicate-UUID from multi-run)
+      explain.innerHTML = '<em style="color:var(--muted);">⟳ Fetching program context…</em>';
       const prog = await apiFetch<any>(`/programs/${encodeURIComponent(label)}`);
       const uuid = prog?.uuid ?? id;
-      explain.textContent = '⟳ Generating explanation…';
+      explain.innerHTML = '<em style="color:var(--muted);">⟳ Generating explanation…</em>';
       const result = await apiFetch<{ spec: string }>('/generate-spec', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ uuid, scope: 'program' }),
       });
-      explain.textContent = result?.spec ?? '(no explanation returned)';
+      explain.innerHTML = _renderMarkdown(result?.spec ?? '(no explanation returned)');
     } catch(e) {
       if (!isAbort(e)) {
-        explain.textContent = (_kgSelectedNode.title ?? label) +
-          '\n\n⚠ LLM explanation unavailable — configure an API key in Settings.';
+        explain.innerHTML = _renderMarkdown((_kgSelectedNode.title ?? label) +
+          '\n\n⚠ LLM explanation unavailable — configure an API key in Settings.');
       }
     }
   } else if (kind === 'copybook') {
     try {
-      explain.textContent = '⟳ Fetching copybook context…';
+      explain.innerHTML = '<em style="color:var(--muted);">⟳ Fetching copybook context…</em>';
       const result = await apiFetch<{ spec: string }>('/explain-copybook', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: label }),
       });
-      explain.textContent = result?.spec ?? '(no explanation returned)';
+      explain.innerHTML = _renderMarkdown(result?.spec ?? '(no explanation returned)');
     } catch(e) {
       if (!isAbort(e)) {
-        explain.textContent = (_kgSelectedNode.title ?? label) +
-          '\n\n⚠ LLM explanation unavailable — configure an API key in Settings.';
+        explain.innerHTML = _renderMarkdown((_kgSelectedNode.title ?? label) +
+          '\n\n⚠ LLM explanation unavailable — configure an API key in Settings.');
       }
     }
   } else {
     // JCL nodes: show metadata summary
-    explain.textContent = _kgSelectedNode.title ?? label;
+    explain.innerHTML = _renderMarkdown(_kgSelectedNode.title ?? label);
   }
 
   if (btn) { btn.disabled = false; btn.textContent = '✦ Explain with AI'; }
@@ -759,8 +758,13 @@ async function loadParaDropdown(prog: string): Promise<void> {
 async function generateSpecPersonas(): Promise<void> {
   const prog  = ($<HTMLSelectElement>('spec-program'))?.value ?? '';
   const scope = ($<HTMLSelectElement>('spec-scope'))?.value ?? 'program';
-  const uuid_ = ($<HTMLInputElement>('spec-uuid'))?.value ?? '';
+  // For paragraph scope, prefer the paragraph dropdown value over spec-uuid
+  const paraUuid = scope === 'paragraph'
+    ? (($<HTMLSelectElement>('spec-paragraph'))?.value ?? ($<HTMLInputElement>('spec-uuid'))?.value ?? '')
+    : (($<HTMLInputElement>('spec-uuid'))?.value ?? '');
+  const uuid_ = paraUuid;
   if (!prog && !uuid_) { showToast('Select a program first', 'error'); return; }
+  if (scope === 'paragraph' && !uuid_) { showToast('Select a paragraph first', 'error'); return; }
 
   const personas: string[] = ['business_summary','highlevel_arch','lowlevel_arch',
     'functional_spec','technical_spec','modernization_spec']
@@ -845,6 +849,92 @@ async function generateSpecPersonas(): Promise<void> {
   }
 }
 
+async function generateComprehensiveSpec(): Promise<void> {
+  const prog = ($<HTMLSelectElement>('spec-program'))?.value ?? '';
+  if (!prog) { showToast('Select a program first', 'error'); return; }
+
+  const btn = $<HTMLButtonElement>('spec-comp-btn');
+  const progressEl = $<HTMLElement>('spec-progress');
+  const progressMsg = $<HTMLElement>('spec-progress-msg');
+  const progressFill = $<HTMLElement>('spec-progress-fill');
+  const tabsEl = $<HTMLElement>('spec-tabs');
+  const contentEl = $<HTMLElement>('spec-tab-content');
+  const emptyState = $<HTMLElement>('spec-empty-state');
+
+  if (btn) { btn.disabled = true; btn.textContent = '⟳ Building comprehensive report…'; }
+  if (progressEl) progressEl.style.display = '';
+  if (progressMsg) progressMsg.textContent = 'Assembling all 7 artifact layers…';
+  if (progressFill) progressFill.style.width = '0%';
+  if (emptyState) emptyState.style.display = 'none';
+
+  // Clear old tabs
+  _personaResults = {};
+  if (tabsEl) tabsEl.innerHTML = '';
+  if (contentEl) contentEl.innerHTML = '';
+
+  // Add a single "Comprehensive Report" tab
+  const COMP_PERSONA = 'comprehensive';
+  addPersonaTab(COMP_PERSONA, '📄 Comprehensive Report', 'pending', tabsEl, contentEl);
+  switchPersonaTab(COMP_PERSONA);
+
+  let fullMarkdown = '';
+  let sectionCount = 0;
+
+  try {
+    const resp = await fetch('/generate-spec/comprehensive', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ program_name: prog }),
+      signal: sig(),
+    });
+    if (!resp.ok) throw new Error(await resp.text());
+
+    const reader = resp.body?.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    const TOTAL_SECTIONS = 16;
+
+    while (reader) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      buf += decoder.decode(chunk.value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop() ?? '';
+      for (const line of lines) {
+        if (!line.startsWith('data:')) continue;
+        try {
+          const evt = JSON.parse(line.slice(5).trim());
+          if (evt.event === 'section_done') {
+            sectionCount++;
+            fullMarkdown += '\n\n---\n\n' + (evt.content ?? '');
+            _personaResults[COMP_PERSONA] = fullMarkdown;
+            const pct = Math.round((sectionCount / TOTAL_SECTIONS) * 100);
+            if (progressFill) progressFill.style.width = pct + '%';
+            if (progressMsg) progressMsg.textContent = `Section ${sectionCount}/${TOTAL_SECTIONS}: ${evt.title ?? ''}`;
+            // Live-update the tab content as sections arrive
+            const div = $<HTMLElement>(`persona-content-${COMP_PERSONA}`);
+            if (div) div.innerHTML = _renderMarkdown(fullMarkdown);
+          } else if (evt.event === 'all_done') {
+            if (progressMsg) progressMsg.textContent = `Complete — ${sectionCount} sections generated`;
+            if (progressFill) progressFill.style.width = '100%';
+          }
+        } catch { /* partial JSON */ }
+      }
+    }
+  } catch(e) {
+    if (!isAbort(e)) showToast(`Comprehensive report failed: ${(e as Error).message}`, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '📄 Comprehensive Report (100+ pages)'; }
+    if (progressEl) setTimeout(() => { if (progressEl) progressEl.style.display = 'none'; }, 3000);
+    const mdBtn  = $<HTMLButtonElement>('spec-export-md');
+    const pdfBtn = $<HTMLButtonElement>('spec-export-pdf');
+    if (mdBtn)  mdBtn.disabled  = !fullMarkdown;
+    if (pdfBtn) pdfBtn.disabled = !fullMarkdown;
+    // Update dot to green
+    const dot = $<HTMLElement>(`persona-tab-dot-${COMP_PERSONA}`);
+    if (dot) dot.style.background = '#4ade80';
+  }
+}
+
 function addPersonaTab(persona: string, label: string, state: string,
                        tabsEl: HTMLElement|null, contentEl: HTMLElement|null): void {
   if (tabsEl) {
@@ -859,9 +949,8 @@ function addPersonaTab(persona: string, label: string, state: string,
   if (contentEl) {
     const div = document.createElement('div');
     div.id = `persona-content-${persona}`;
-    div.style.display = 'none';
-    div.style.cssText = 'display:none;white-space:pre-wrap;font-size:13px;line-height:1.7;color:var(--text);';
-    div.textContent = 'Generating…';
+    div.style.cssText = 'display:none;font-size:13px;line-height:1.8;color:var(--text);padding:4px 0;';
+    div.innerHTML = '<em style="color:var(--muted);">Generating…</em>';
     contentEl.appendChild(div);
   }
 }
@@ -872,7 +961,7 @@ function updatePersonaTab(persona: string, content: string,
   const dot = $<HTMLElement>(`persona-tab-dot-${persona}`);
   if (dot) dot.style.background = '#4ade80';
   const div = $<HTMLElement>(`persona-content-${persona}`);
-  if (div) div.textContent = content;
+  if (div) div.innerHTML = _renderMarkdown(content);
   // Auto-switch to first completed tab
   if (_activePersonaTab === '') switchPersonaTab(persona);
 }
@@ -881,7 +970,7 @@ function updatePersonaTabError(persona: string, error: string, tabsEl: HTMLEleme
   const dot = $<HTMLElement>(`persona-tab-dot-${persona}`);
   if (dot) dot.style.background = '#f87171';
   const div = $<HTMLElement>(`persona-content-${persona}`);
-  if (div) { div.textContent = `Error: ${error}`; div.style.color = '#f87171'; }
+  if (div) { div.innerHTML = `<span style="color:#f87171;">Error: ${escapeHtml(error)}</span>`; }
 }
 
 function switchPersonaTab(persona: string): void {
@@ -3968,6 +4057,7 @@ Object.assign(window as any, {
   onSpecProgramChange,
   onSpecScopeChange,
   generateSpecPersonas,
+  generateComprehensiveSpec,
   toggleAllPersonas,
   switchPersonaTab,
   exportSpecMd,

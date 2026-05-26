@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>COBOL Pipeline — UST CodeCrafter Championship</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
@@ -170,9 +171,9 @@
     #content { flex: 1; padding: 28px 32px; max-width: 1400px; width: 100%; }
 
     /* Sidebar brand bar */
-    .sidebar-brand { background: #003c51; border-bottom: 3px solid var(--ust-teal); padding: 16px; }
+    .sidebar-brand { background: #003c51; border-bottom: 3px solid var(--ust-teal); padding: 14px 16px; }
     .ust-logo { display: flex; align-items: center; gap: 10px; }
-    .ust-badge { width: 36px; height: 36px; background: var(--ust-teal); border-radius: 6px; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 14px; color: white; letter-spacing: -1px; flex-shrink: 0; }
+    .ust-logo-img { width: 36px; height: 36px; flex-shrink: 0; filter: invert(1) brightness(2); }
 
     /* Nav */
     .nav-item { display: flex; align-items: center; gap: 10px; padding: 9px 14px; border-radius: 7px; cursor: pointer; color: var(--muted); font-size: 13.5px; font-weight: 500; transition: all .15s; margin: 2px 8px; }
@@ -331,7 +332,7 @@
       #content { padding: 16px; }
     }
   </style>
-  <script type="module" crossorigin src="/assets/index-DnQQgTAB.js"></script>
+  <script type="module" crossorigin src="/assets/index-Cc7e1vUP.js"></script>
 </head>
 <body>
 
@@ -340,7 +341,7 @@
   <!-- Brand -->
   <div class="sidebar-brand">
     <div class="ust-logo">
-      <div class="ust-badge">UST</div>
+      <img src="/ust-logo.svg" alt="UST" class="ust-logo-img" style="color:white;" />
       <div>
         <div style="font-weight:700;font-size:13px;color:#fff;letter-spacing:.02em;">COBOL Pipeline</div>
         <div style="font-size:10px;color:rgba(255,255,255,.55);margin-top:1px;">CodeCrafter Championship</div>
@@ -1068,9 +1069,14 @@
         </div>
       </div>
 
-      <button id="spec-btn" class="btn btn-primary" style="width:100%;justify-content:center;margin-bottom:10px;" onclick="generateSpecPersonas()">
+      <button id="spec-btn" class="btn btn-primary" style="width:100%;justify-content:center;margin-bottom:8px;" onclick="generateSpecPersonas()">
         <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4"/></svg>
         Generate Specs
+      </button>
+
+      <button id="spec-comp-btn" class="btn btn-secondary" style="width:100%;justify-content:center;margin-bottom:10px;border:1px solid #5ecdd1;color:#5ecdd1;" onclick="generateComprehensiveSpec()">
+        <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+        Comprehensive Report (100+ pages)
       </button>
 
       <div id="spec-progress" style="display:none;margin-bottom:12px;">

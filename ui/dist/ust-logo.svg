@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 220" width="220" height="220">
+  <!-- White background version of the UST logo for dark sidebar use -->
+  <!-- Top-left: U -->
+  <text x="8" y="110" font-family="'Arial Black','Arial',sans-serif" font-weight="900" font-size="108" fill="currentColor">U</text>
+  <!-- Top-right: small square dot -->
+  <rect x="138" y="22" width="38" height="38" fill="currentColor"/>
+  <!-- Bottom-left: S -->
+  <text x="8" y="215" font-family="'Arial Black','Arial',sans-serif" font-weight="900" font-size="108" fill="currentColor">S</text>
+  <!-- Bottom-right: T -->
+  <text x="122" y="215" font-family="'Arial Black','Arial',sans-serif" font-weight="900" font-size="108" fill="currentColor">T</text>
+</svg>

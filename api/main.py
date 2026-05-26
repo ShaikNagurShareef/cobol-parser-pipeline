@@ -1199,6 +1199,258 @@ async def generate_spec_personas(body: dict):
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
+@app.post("/generate-spec/comprehensive", tags=["LLM"])
+async def generate_comprehensive_spec(body: dict):
+    """Generate a 100+ page consolidated specification from all 7 artifact layers.
+
+    Streams SSE events:  section_done {title, content}  |  all_done
+    """
+    program_name = body.get("program_name", "")
+    if not program_name:
+        raise HTTPException(400, "program_name required")
+    if not _db_exists():
+        raise HTTPException(503, "Pipeline database not found — run the pipeline first.")
+
+    async def _stream():
+        with _con() as con:
+            prog_uuid = _get_prog_uuid(con, program_name)
+            if not prog_uuid:
+                yield f"data: {json.dumps({'event':'error','message':f'Program {program_name!r} not found'})}\n\n"
+                return
+
+            from llm.retrieval import assemble_program_slice
+            from llm.multi_agent import generate_persona_spec
+
+            slice_data = assemble_program_slice(prog_uuid, con)
+
+            # Pull raw DB data for the comprehensive sections
+            paragraphs = _rows_to_list(con.execute(
+                "SELECT uuid, name, start_line, end_line FROM nodes WHERE parent_uuid=? AND kind='Paragraph' ORDER BY start_line",
+                (prog_uuid,)).fetchall())
+            data_items = _rows_to_list(con.execute(
+                "SELECT name, level, pic, usage, canonical_kind, precision, scale, signed, length, copybook_origin FROM data_items WHERE program_uuid=? ORDER BY start_line",
+                (prog_uuid,)).fetchall())
+            biz_rules = _rows_to_list(con.execute(
+                "SELECT kind, predicate_raw, predicate_resolved, then_summary, else_summary, line FROM business_rules WHERE program_uuid=? ORDER BY line",
+                (prog_uuid,)).fetchall())
+            cfg_edges = _rows_to_list(con.execute(
+                """SELECT n1.name AS from_name, n2.name AS to_name, cf.edge_type
+                   FROM control_flow cf
+                   JOIN nodes n1 ON n1.uuid=cf.from_uuid
+                   JOIN nodes n2 ON n2.uuid=cf.to_uuid
+                   WHERE n1.parent_uuid=? OR n2.parent_uuid=?
+                   ORDER BY cf.edge_type, n1.name""",
+                (prog_uuid, prog_uuid)).fetchall())
+            call_edges = _rows_to_list(con.execute(
+                """SELECT n2.name AS callee, cg.call_type, cg.is_resolved
+                   FROM call_graph cg
+                   LEFT JOIN nodes n2 ON n2.uuid=cg.callee_uuid
+                   WHERE cg.caller_uuid=?""",
+                (prog_uuid,)).fetchall())
+            file_ops = _rows_to_list(con.execute(
+                "SELECT file_name, operation FROM file_io WHERE program_uuid=? ORDER BY file_name",
+                (prog_uuid,)).fetchall())
+            risks = _rows_to_list(con.execute(
+                "SELECT kind, severity, note, line FROM risk_register WHERE program_uuid=? ORDER BY severity, kind",
+                (prog_uuid,)).fetchall())
+            arith = _rows_to_list(con.execute(
+                "SELECT expression_text, result_field FROM arithmetic_specs WHERE program_uuid=? LIMIT 40",
+                (prog_uuid,)).fetchall())
+            conds_88 = _rows_to_list(con.execute(
+                """SELECT di_name.name AS parent_name, c.name AS condition_name, c.value_raw
+                   FROM conditions_88 c
+                   JOIN data_items di_name ON di_name.uuid=c.parent_uuid
+                   WHERE di_name.program_uuid=? ORDER BY parent_name""",
+                (prog_uuid,)).fetchall())
+            jcl_bindings = _rows_to_list(con.execute(
+                "SELECT job_name, step_name, dd_name, dataset_name, cobol_logical_file FROM jcl_program_binding WHERE program_uuid=?",
+                (prog_uuid,)).fetchall())
+
+        prog_node = slice_data.get("program", {})
+        prog_name = prog_node.get("name", program_name)
+
+        def _table(headers: list[str], rows: list[dict], keys: list[str], limit: int = 200) -> str:
+            if not rows:
+                return "_None recorded._\n"
+            hdr = "| " + " | ".join(headers) + " |\n"
+            sep = "|" + "|".join("---" for _ in headers) + "|\n"
+            body = ""
+            for r in rows[:limit]:
+                cells = [str(r.get(k, "") or "").replace("|", "\\|").replace("\n", " ")[:120] for k in keys]
+                body += "| " + " | ".join(cells) + " |\n"
+            if len(rows) > limit:
+                body += f"\n_…and {len(rows)-limit} more rows._\n"
+            return hdr + sep + body
+
+        sections = []
+
+        # ── Section 1: Executive Summary ─────────────────────────────────────
+        sections.append(("Executive Summary", f"""# {prog_name} — Comprehensive Modernisation Specification
+
+**Program:** `{prog_name}`
+**Source file:** `{prog_node.get('source_file','').split('/')[-1]}`
+**Lines of code:** {prog_node.get('end_line',0) - prog_node.get('start_line',0) + 1}
+**Paragraphs:** {len(paragraphs)}
+**Data items:** {len(data_items)}
+**Business rules:** {len(biz_rules)}
+**Migration risks:** {len(risks)} ({sum(1 for r in risks if r['severity']=='HIGH')} HIGH, {sum(1 for r in risks if r['severity']=='MEDIUM')} MEDIUM, {sum(1 for r in risks if r['severity']=='LOW')} LOW)
+**Call edges:** {len(call_edges)}
+**File I/O operations:** {len(file_ops)}
+**CFG edges:** {len(cfg_edges)}
+**JCL dataset bindings:** {len(jcl_bindings)}
+
+This document is machine-generated from the 7-layer ANTLR4 artifact pipeline. Every fact is grounded in parsed artifacts — no source code was passed to the LLM.
+"""))
+
+        # ── Section 2: Paragraph Inventory ───────────────────────────────────
+        sections.append(("Paragraph Inventory", f"""## 1. Paragraph Inventory
+
+All {len(paragraphs)} paragraphs in `{prog_name}`, in source order:
+
+""" + _table(
+            ["Paragraph Name", "Start Line", "End Line", "Lines"],
+            [{**p, "Lines": str(p.get("end_line",0) - p.get("start_line",0) + 1)} for p in paragraphs],
+            ["name", "start_line", "end_line", "Lines"],
+        )))
+
+        # ── Section 3: Data Dictionary ────────────────────────────────────────
+        sections.append(("Data Dictionary", f"""## 2. Data Dictionary
+
+All {len(data_items)} data items defined in `{prog_name}`:
+
+""" + _table(
+            ["Name", "Level", "PIC", "USAGE", "Canonical Type", "Copybook"],
+            data_items,
+            ["name", "level", "pic", "usage", "canonical_kind", "copybook_origin"],
+        )))
+
+        # ── Section 4: 88-Level Conditions ────────────────────────────────────
+        sections.append(("88-Level Conditions", f"""## 3. 88-Level Conditions (Named Predicates)
+
+{len(conds_88)} named conditions defined. These are resolved to VALUE clauses in business rules:
+
+""" + _table(
+            ["Parent Variable", "Condition Name", "Value(s)"],
+            conds_88,
+            ["parent_name", "condition_name", "value_raw"],
+        )))
+
+        # ── Section 5: Business Rules ─────────────────────────────────────────
+        sections.append(("Business Rules", f"""## 4. Business Rules
+
+All {len(biz_rules)} IF/EVALUATE conditions extracted from `{prog_name}`:
+
+""" + _table(
+            ["Kind", "Predicate (Raw)", "Predicate (Resolved)", "Then", "Else", "Line"],
+            biz_rules,
+            ["kind", "predicate_raw", "predicate_resolved", "then_summary", "else_summary", "line"],
+        )))
+
+        # ── Section 6: Arithmetic Specifications ──────────────────────────────
+        if arith:
+            sections.append(("Arithmetic Specifications", f"""## 5. Arithmetic Specifications
+
+{len(arith)} COMPUTE/ADD/SUBTRACT/MULTIPLY/DIVIDE operations. All numeric fields are COMP-3 packed decimal → emit as `BigDecimal` with `RoundingMode.HALF_EVEN`:
+
+""" + _table(
+                ["Expression", "Result Field"],
+                arith,
+                ["expression_text", "result_field"],
+            )))
+
+        # ── Section 7: Control Flow Graph ─────────────────────────────────────
+        edge_types = {}
+        for e in cfg_edges:
+            edge_types[e.get("edge_type","")] = edge_types.get(e.get("edge_type",""), 0) + 1
+        sections.append(("Control Flow Graph", f"""## 6. Control Flow Graph
+
+**Total CFG edges:** {len(cfg_edges)}
+
+Edge type breakdown:
+""" + "\n".join(f"- `{k}`: {v}" for k, v in sorted(edge_types.items())) + "\n\n" +
+            _table(["From Paragraph", "To Paragraph", "Edge Type"], cfg_edges, ["from_name", "to_name", "edge_type"])))
+
+        # ── Section 8: Inter-Program Calls ────────────────────────────────────
+        sections.append(("Inter-Program Call Graph", f"""## 7. Inter-Program Call Graph
+
+`{prog_name}` makes {len(call_edges)} outbound call(s):
+
+""" + _table(
+            ["Callee Program", "Call Type", "Resolved?"],
+            [{**c, "Resolved?": "✓" if c.get("is_resolved") else "✗ (dynamic)"} for c in call_edges],
+            ["callee", "call_type", "Resolved?"],
+        )))
+
+        # ── Section 9: File I/O ───────────────────────────────────────────────
+        sections.append(("File I/O Operations", f"""## 8. File I/O Operations
+
+""" + _table(["Logical File Name", "Operation"], file_ops, ["file_name", "operation"])))
+
+        # ── Section 10: JCL Dataset Bindings ─────────────────────────────────
+        if jcl_bindings:
+            sections.append(("JCL Dataset Bindings", f"""## 9. JCL Dataset Bindings
+
+JCL DD names linked to this program's logical files:
+
+""" + _table(
+                ["Job", "Step", "DD Name", "Dataset DSN", "COBOL Logical File"],
+                jcl_bindings,
+                ["job_name", "step_name", "dd_name", "dataset_name", "cobol_logical_file"],
+            )))
+
+        # ── Section 11: Migration Risk Register ──────────────────────────────
+        sections.append(("Migration Risk Register", f"""## 10. Migration Risk Register
+
+{len(risks)} risks identified ({sum(1 for r in risks if r['severity']=='HIGH')} HIGH, {sum(1 for r in risks if r['severity']=='MEDIUM')} MEDIUM, {sum(1 for r in risks if r['severity']=='LOW')} LOW):
+
+""" + _table(
+            ["Risk Kind", "Severity", "Note", "Line"],
+            sorted(risks, key=lambda r: {"HIGH":0,"MEDIUM":1,"LOW":2}.get(r.get("severity",""),3)),
+            ["kind", "severity", "note", "line"],
+        )))
+
+        # ── Sections 12-17: LLM-generated personas ───────────────────────────
+        import concurrent.futures
+        from llm.multi_agent import generate_persona_spec
+        persona_map = {
+            "business_summary":   "11. Business Summary",
+            "highlevel_arch":     "12. High-Level Architecture",
+            "lowlevel_arch":      "13. Low-Level Architecture",
+            "functional_spec":    "14. Functional Specification",
+            "technical_spec":     "15. Technical Specification",
+            "modernization_spec": "16. Modernisation Specification",
+        }
+
+        loop = asyncio.get_event_loop()
+        async def _run_persona(pkey: str, ptitle: str):
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                result = await loop.run_in_executor(
+                    pool, generate_persona_spec, pkey, program_name, "program", prog_uuid
+                )
+            content = result.get("content", "")
+            return ptitle, f"## {ptitle}\n\n{content}"
+
+        # Stream the static sections first
+        for title, content in sections:
+            yield f"data: {json.dumps({'event':'section_done','title':title,'content':content})}\n\n"
+            await asyncio.sleep(0)
+
+        # Run all personas in parallel then stream as they finish
+        tasks = [_run_persona(k, v) for k, v in persona_map.items()]
+        for coro in asyncio.as_completed(tasks):
+            try:
+                ptitle, content = await coro
+                yield f"data: {json.dumps({'event':'section_done','title':ptitle,'content':content})}\n\n"
+            except Exception as exc:
+                yield f"data: {json.dumps({'event':'section_done','title':'Error','content':f'LLM section failed: {exc}'})}\n\n"
+            await asyncio.sleep(0)
+
+        yield f"data: {json.dumps({'event':'all_done'})}\n\n"
+
+    return StreamingResponse(_stream(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
 @app.post("/specs/export/pdf", tags=["LLM"])
 def export_spec_pdf(body: dict):
     """Render markdown spec content to a properly styled PDF via WeasyPrint."""
