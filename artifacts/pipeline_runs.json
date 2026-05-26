@@ -1,0 +1,41 @@
+[
+  {
+    "id": "4af7a4ad",
+    "corpus": "external/carddemo/app/cbl",
+    "started_at": 1779459063.9186401,
+    "completed_at": 1779459132.278255,
+    "status": "completed",
+    "stats": {
+      "programs": 31,
+      "paragraphs": 1200,
+      "business_rules": 192,
+      "call_edges": 116
+    }
+  },
+  {
+    "id": "552aa29a",
+    "corpus": "external/carddemo/app/cbl",
+    "started_at": 1779465595.522471,
+    "completed_at": 1779465663.845632,
+    "status": "completed",
+    "stats": {
+      "programs": 31,
+      "paragraphs": 1200,
+      "business_rules": 192,
+      "call_edges": 174
+    }
+  },
+  {
+    "id": "cb744b8d",
+    "corpus": "external/carddemo/app/cbl",
+    "started_at": 1779671199.027992,
+    "completed_at": 1779671300.0161622,
+    "status": "completed",
+    "stats": {
+      "programs": 31,
+      "paragraphs": 1200,
+      "business_rules": 384,
+      "call_edges": 116
+    }
+  }
+]
