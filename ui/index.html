@@ -1946,17 +1946,19 @@
       <div style="font-weight:600;margin-bottom:16px;font-size:14px;">LLM Configuration</div>
       <div style="display:flex;flex-direction:column;gap:14px;">
         <div>
-          <label for="settings-provider" style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px;">Provider</label>
+          <label for="settings-provider" style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px;">Provider <span style="color:#f87171;">*</span></label>
           <select id="settings-provider" style="width:100%;" onchange="onProviderChange()">
             <option value="openai">OpenAI</option>
             <option value="gemini">Google Gemini</option>
+            <option value="anthropic">Anthropic</option>
           </select>
         </div>
         <div>
-          <label for="settings-model" style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px;">Model</label>
-          <select id="settings-model" style="width:100%;">
-            <option>Loading…</option>
+          <label for="settings-model" style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px;">Model <span style="color:#f87171;">*</span></label>
+          <select id="settings-model" style="width:100%;" required>
+            <option value="">— select model —</option>
           </select>
+          <div id="settings-model-error" style="color:#f87171;font-size:11px;margin-top:4px;display:none;">Please select a model before saving.</div>
         </div>
         <div id="settings-openai-key-wrap">
           <label for="settings-openai-key" style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px;">OpenAI API Key</label>
@@ -1965,6 +1967,10 @@
         <div id="settings-gemini-key-wrap" style="display:none;">
           <label for="settings-gemini-key" style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px;">Gemini API Key</label>
           <input id="settings-gemini-key" type="password" placeholder="AIza… (leave blank to keep current)" style="width:100%;" />
+        </div>
+        <div id="settings-anthropic-key-wrap" style="display:none;">
+          <label for="settings-anthropic-key" style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px;">Anthropic API Key</label>
+          <input id="settings-anthropic-key" type="password" placeholder="sk-ant-… (leave blank to keep current)" style="width:100%;" />
         </div>
         <button class="btn btn-primary" onclick="saveSettings()" style="width:100%;justify-content:center;">
           <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>

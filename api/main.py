@@ -118,13 +118,22 @@ def _table_exists(con, table_name: str) -> bool:
 @app.get("/settings", tags=["Settings"])
 def get_settings():
     """Return current runtime configuration (no secret key values)."""
+    provider = os.environ.get("LLM_PROVIDER", "openai")
+    model = os.environ.get("LLM_MODEL") or os.environ.get("OPENAI_MODEL") or ""
+    if provider == "gemini":
+        model = os.environ.get("LLM_MODEL") or os.environ.get("GEMINI_MODEL") or ""
+    elif provider == "anthropic":
+        model = os.environ.get("LLM_MODEL") or os.environ.get("ANTHROPIC_MODEL") or ""
     return {
-        "llm_provider":    os.environ.get("LLM_PROVIDER", "openai"),
-        "openai_model":    os.environ.get("OPENAI_MODEL", "gpt-4o"),
-        "gemini_model":    os.environ.get("GEMINI_MODEL", "gemini-2.0-flash"),
-        "pipeline_workers": int(os.environ.get("PIPELINE_WORKERS", "4")),
-        "openai_key_set":  bool(os.environ.get("OPENAI_API_KEY")),
-        "gemini_key_set":  bool(os.environ.get("GEMINI_API_KEY")),
+        "llm_provider":      provider,
+        "model":             model,
+        "openai_model":      os.environ.get("OPENAI_MODEL", ""),
+        "gemini_model":      os.environ.get("GEMINI_MODEL", ""),
+        "anthropic_model":   os.environ.get("ANTHROPIC_MODEL", ""),
+        "pipeline_workers":  int(os.environ.get("PIPELINE_WORKERS", "4")),
+        "openai_key_set":    bool(os.environ.get("OPENAI_API_KEY")),
+        "gemini_key_set":    bool(os.environ.get("GEMINI_API_KEY")),
+        "anthropic_key_set": bool(os.environ.get("ANTHROPIC_API_KEY")),
     }
 
 
@@ -134,22 +143,34 @@ def update_settings(body: dict):
     env_path = PROJECT_ROOT / ".env"
     env_lines = env_path.read_text().splitlines() if env_path.exists() else []
 
-    updates = {}
+    updates: dict[str, str] = {}
     if "llm_provider" in body:
         updates["LLM_PROVIDER"] = str(body["llm_provider"])
         os.environ["LLM_PROVIDER"] = updates["LLM_PROVIDER"]
-    if "openai_model" in body:
-        updates["OPENAI_MODEL"] = str(body["openai_model"])
-        os.environ["OPENAI_MODEL"] = updates["OPENAI_MODEL"]
-    if "gemini_model" in body:
-        updates["GEMINI_MODEL"] = str(body["gemini_model"])
-        os.environ["GEMINI_MODEL"] = updates["GEMINI_MODEL"]
+    # Accept a generic "model" field — store under both the generic key and provider-specific key
+    provider = body.get("llm_provider") or os.environ.get("LLM_PROVIDER", "openai")
+    model = body.get("model") or body.get(f"{provider}_model") or ""
+    if model:
+        updates["LLM_MODEL"] = model
+        os.environ["LLM_MODEL"] = model
+        if provider == "openai":
+            updates["OPENAI_MODEL"] = model
+            os.environ["OPENAI_MODEL"] = model
+        elif provider == "gemini":
+            updates["GEMINI_MODEL"] = model
+            os.environ["GEMINI_MODEL"] = model
+        elif provider == "anthropic":
+            updates["ANTHROPIC_MODEL"] = model
+            os.environ["ANTHROPIC_MODEL"] = model
     if "openai_api_key" in body and body["openai_api_key"]:
         updates["OPENAI_API_KEY"] = str(body["openai_api_key"])
         os.environ["OPENAI_API_KEY"] = updates["OPENAI_API_KEY"]
     if "gemini_api_key" in body and body["gemini_api_key"]:
         updates["GEMINI_API_KEY"] = str(body["gemini_api_key"])
         os.environ["GEMINI_API_KEY"] = updates["GEMINI_API_KEY"]
+    if "anthropic_api_key" in body and body["anthropic_api_key"]:
+        updates["ANTHROPIC_API_KEY"] = str(body["anthropic_api_key"])
+        os.environ["ANTHROPIC_API_KEY"] = updates["ANTHROPIC_API_KEY"]
 
     # Patch the .env file
     updated_keys: set[str] = set()

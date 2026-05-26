@@ -1830,25 +1830,39 @@ function filterRiskTable(): void {
 async function loadSettings(): Promise<void> {
   try {
     const s = await apiFetch<{
-      provider: string; llm_provider: string; openai_model: string; gemini_model: string;
-      openai_key_set: boolean; gemini_key_set: boolean;
+      llm_provider: string; model: string;
+      openai_model: string; gemini_model: string; anthropic_model: string;
+      openai_key_set: boolean; gemini_key_set: boolean; anthropic_key_set: boolean;
     }>('/settings');
 
+    const activeProvider = s.llm_provider || 'openai';
     const provEl = $<HTMLSelectElement>('settings-provider');
-    if (provEl) provEl.value = s.llm_provider || s.provider;
+    if (provEl) provEl.value = activeProvider;
+
+    // Show the correct API key field
+    const openaiWrap = $<HTMLElement>('settings-openai-key-wrap');
+    const geminiWrap = $<HTMLElement>('settings-gemini-key-wrap');
+    const anthropicWrap = $<HTMLElement>('settings-anthropic-key-wrap');
+    if (openaiWrap) openaiWrap.style.display = activeProvider === 'openai' ? '' : 'none';
+    if (geminiWrap) geminiWrap.style.display = activeProvider === 'gemini' ? '' : 'none';
+    if (anthropicWrap) anthropicWrap.style.display = activeProvider === 'anthropic' ? '' : 'none';
+
+    // Resolve currently saved model for this provider
+    const savedModel = s.model ||
+      (activeProvider === 'gemini' ? s.gemini_model :
+       activeProvider === 'anthropic' ? s.anthropic_model : s.openai_model) || '';
 
     const curEl = $<HTMLElement>('settings-current-info');
     if (curEl) curEl.innerHTML = `
       <div style="display:flex;flex-direction:column;gap:10px;">
-        <div><span style="color:var(--muted);font-size:12px;">Provider</span><br><span style="font-weight:600;">${s.provider}</span></div>
-        <div><span style="color:var(--muted);font-size:12px;">OpenAI Model</span><br><span style="font-weight:600;">${s.openai_model}</span></div>
-        <div><span style="color:var(--muted);font-size:12px;">Gemini Model</span><br><span style="font-weight:600;">${s.gemini_model}</span></div>
+        <div><span style="color:var(--muted);font-size:12px;">Provider</span><br><span style="font-weight:600;">${activeProvider}</span></div>
+        <div><span style="color:var(--muted);font-size:12px;">Model</span><br><span style="font-weight:600;">${savedModel || '—'}</span></div>
         <div><span style="color:var(--muted);font-size:12px;">OpenAI Key</span><br><span class="badge ${s.openai_key_set ? 'badge-green' : 'badge-red'}">${s.openai_key_set ? '✓ Set' : 'Not set'}</span></div>
         <div><span style="color:var(--muted);font-size:12px;">Gemini Key</span><br><span class="badge ${s.gemini_key_set ? 'badge-green' : 'badge-red'}">${s.gemini_key_set ? '✓ Set' : 'Not set'}</span></div>
+        <div><span style="color:var(--muted);font-size:12px;">Anthropic Key</span><br><span class="badge ${s.anthropic_key_set ? 'badge-green' : 'badge-red'}">${s.anthropic_key_set ? '✓ Set' : 'Not set'}</span></div>
       </div>`;
 
-    const activeProvider = s.llm_provider || s.provider;
-    await loadModelsForProvider(activeProvider, activeProvider === 'gemini' ? s.gemini_model : s.openai_model);
+    await loadModelsForProvider(activeProvider, savedModel);
   } catch(e) {
     if (!isAbort(e)) console.warn('Failed to load settings:', e);
   }
@@ -1859,15 +1873,18 @@ async function loadSettings(): Promise<void> {
 async function loadModelsForProvider(provider: string, currentModel: string): Promise<void> {
   const sel = $<HTMLSelectElement>('settings-model');
   if (!sel) return;
-  sel.innerHTML = '<option>Loading…</option>';
+  sel.innerHTML = '<option value="">— select model —</option>';
   sel.disabled = true;
   try {
-    const data = await apiFetch<{ provider: string; models: string[]; current_model: string }>('/models');
-    sel.innerHTML = data.models.map(m => `<option value="${m}" ${m === currentModel ? 'selected' : ''}>${m}</option>`).join('');
-    if (!sel.value && data.models.length) sel.value = data.models[0];
+    const data = await apiFetch<{ models: string[] }>(`/models?provider=${encodeURIComponent(provider.toLowerCase())}`);
+    const models = data.models ?? [];
+    sel.innerHTML = '<option value="">— select model —</option>' +
+      models.map(m => `<option value="${m}" ${m === currentModel ? 'selected' : ''}>${m}</option>`).join('');
     sel.disabled = false;
   } catch {
-    sel.innerHTML = `<option value="${currentModel}">${currentModel}</option>`;
+    // On error, keep placeholder and show saved model if any
+    sel.innerHTML = '<option value="">— select model —</option>' +
+      (currentModel ? `<option value="${currentModel}" selected>${currentModel}</option>` : '');
     sel.disabled = false;
   }
 }
@@ -1877,22 +1894,34 @@ async function onProviderChange(): Promise<void> {
   const provider = provEl?.value ?? 'openai';
   const openaiWrap = $<HTMLElement>('settings-openai-key-wrap');
   const geminiWrap = $<HTMLElement>('settings-gemini-key-wrap');
+  const anthropicWrap = $<HTMLElement>('settings-anthropic-key-wrap');
   if (openaiWrap) openaiWrap.style.display = provider === 'openai' ? '' : 'none';
   if (geminiWrap) geminiWrap.style.display = provider === 'gemini' ? '' : 'none';
+  if (anthropicWrap) anthropicWrap.style.display = provider === 'anthropic' ? '' : 'none';
+  // Load models for the newly selected provider immediately — no save needed
   await loadModelsForProvider(provider, '');
 }
 
 async function saveSettings(): Promise<void> {
-  const provider = ($<HTMLSelectElement>('settings-provider'))?.value ?? 'openai';
+  const provider = ($<HTMLSelectElement>('settings-provider'))?.value ?? '';
   const model    = ($<HTMLSelectElement>('settings-model'))?.value ?? '';
-  const oaKey    = ($<HTMLInputElement>('settings-openai-key'))?.value?.trim() ?? '';
-  const gmKey    = ($<HTMLInputElement>('settings-gemini-key'))?.value?.trim() ?? '';
+  const errEl    = $<HTMLElement>('settings-model-error');
 
-  const body: Record<string, string> = { llm_provider: provider };
-  if (provider === 'openai') body.openai_model = model;
-  else body.gemini_model = model;
+  if (!model) {
+    if (errEl) errEl.style.display = '';
+    showToast('Please select a model before saving', 'error');
+    return;
+  }
+  if (errEl) errEl.style.display = 'none';
+
+  const oaKey  = ($<HTMLInputElement>('settings-openai-key'))?.value?.trim() ?? '';
+  const gmKey  = ($<HTMLInputElement>('settings-gemini-key'))?.value?.trim() ?? '';
+  const anKey  = ($<HTMLInputElement>('settings-anthropic-key'))?.value?.trim() ?? '';
+
+  const body: Record<string, string> = { llm_provider: provider, model };
   if (oaKey) body.openai_api_key = oaKey;
   if (gmKey) body.gemini_api_key = gmKey;
+  if (anKey) body.anthropic_api_key = anKey;
 
   try {
     await apiFetch('/settings', {
