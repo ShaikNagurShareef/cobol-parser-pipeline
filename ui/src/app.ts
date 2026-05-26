@@ -888,8 +888,8 @@ async function generateComprehensiveSpec(): Promise<void> {
     const reader = resp.body?.getReader();
     const decoder = new TextDecoder();
     let buf = '';
-    // 11 static DB sections + 6 LLM sections = 17
-    const TOTAL_SECTIONS = 17;
+    // 2 static + 7 LLM sections + 1 static appendix = 10
+    const TOTAL_SECTIONS = 10;
 
     while (reader) {
       const chunk = await reader.read();
@@ -909,7 +909,10 @@ async function generateComprehensiveSpec(): Promise<void> {
             if (progressFill) progressFill.style.width = pct + '%';
             if (progressMsg) progressMsg.textContent = `Section ${sectionCount}/${TOTAL_SECTIONS}: ${evt.title ?? ''}`;
             const div = $<HTMLElement>(`persona-content-${COMP_PERSONA}`);
-            if (div) div.innerHTML = _renderMarkdown(fullMarkdown);
+            if (div) {
+              div.innerHTML = _renderMarkdown(fullMarkdown);
+              try { await (window as any).mermaid?.run({ querySelector: '#persona-content-comprehensive .mermaid' }); } catch {}
+            }
           } else if (evt.event === 'all_done') {
             if (progressMsg) progressMsg.textContent = `Complete — ${sectionCount} sections generated`;
             if (progressFill) progressFill.style.width = '100%';
@@ -3963,15 +3966,82 @@ async function runPlatformRecommender(): Promise<void> {
 }
 
 function _renderMarkdown(md: string): string {
-  return md
-    .replace(/^## (.+)$/gm, '<h2 style="color:#5ecdd1;font-size:14px;font-weight:700;margin:20px 0 8px;border-bottom:1px solid var(--border);padding-bottom:6px;">$1</h2>')
-    .replace(/^### (.+)$/gm, '<h3 style="color:#60c8fa;font-size:13px;font-weight:600;margin:14px 0 6px;">$1</h3>')
-    .replace(/\*\*(.+?)\*\*/g, '<strong style="color:var(--text);">$1</strong>')
-    .replace(/`([^`]+)`/g, '<code style="background:var(--surface2);padding:2px 5px;border-radius:3px;font-size:12px;">$1</code>')
-    .replace(/^- (.+)$/gm, '<div style="display:flex;gap:8px;margin:4px 0;"><span style="color:#5ecdd1;flex-shrink:0;">•</span><span>$1</span></div>')
-    .replace(/^(\d+)\. (.+)$/gm, '<div style="display:flex;gap:8px;margin:4px 0;"><span style="color:#fbbf24;min-width:20px;">$1.</span><span>$2</span></div>')
-    .replace(/\n\n/g, '<br style="line-height:2;"><br>')
-    .replace(/\n/g, '<br>');
+  // Pass 1: Extract fenced code blocks (protect from further processing)
+  const blocks: string[] = [];
+  let s = md.replace(/```(\w*)\n?([\s\S]*?)```/g, (_m, lang: string, content: string) => {
+    const idx = blocks.length;
+    const trimmed = content.replace(/\n$/, '');
+    if (lang.toLowerCase() === 'mermaid') {
+      blocks.push(`<div class="mermaid" style="background:var(--surface);padding:16px;border-radius:8px;border:1px solid var(--border);margin:16px 0;overflow-x:auto;">${trimmed}</div>`);
+    } else {
+      blocks.push(`<pre style="background:var(--surface2);padding:14px;border-radius:6px;overflow-x:auto;border:1px solid var(--border);margin:12px 0;font-size:11px;"><code>${escapeHtml(trimmed)}</code></pre>`);
+    }
+    return `\x00BLOCK${idx}\x00`;
+  });
+
+  // Pass 2: Tables (pipe tables with separator row)
+  s = s.replace(/(\|[^\n]+\|\n\|[-| :]+\|\n(?:\|[^\n]+\|\n?)+)/g, (tableMatch: string) => {
+    const tableLines = tableMatch.trim().split('\n');
+    const headers = tableLines[0].split('|').filter((_c, i, arr) => i > 0 && i < arr.length - 1).map(h => h.trim());
+    const dataRows = tableLines.slice(2);
+    let html = '<div style="overflow-x:auto;margin:12px 0;"><table style="border-collapse:collapse;width:100%;font-size:12px;">';
+    html += '<thead><tr>' + headers.map(h => `<th style="background:var(--surface2);color:#5ecdd1;padding:6px 10px;border:1px solid var(--border);text-align:left;">${h}</th>`).join('') + '</tr></thead>';
+    html += '<tbody>';
+    for (const row of dataRows) {
+      if (!row.trim()) continue;
+      const cells = row.split('|').filter((_c, i, arr) => i > 0 && i < arr.length - 1).map(c => c.trim());
+      html += '<tr>' + cells.map(c => `<td style="padding:6px 10px;border:1px solid var(--border);">${c}</td>`).join('') + '</tr>';
+    }
+    html += '</tbody></table></div>';
+    return html;
+  });
+
+  // Pass 3: Horizontal rules
+  s = s.replace(/^---$/gm, '<hr style="border:none;border-top:1px solid var(--border);margin:20px 0;">');
+
+  // Pass 4: Headings H1-H4 (most specific first)
+  s = s.replace(/^#### (.+)$/gm, '<h4 style="color:#94a3b8;font-size:11px;font-weight:600;margin:10px 0 4px;text-transform:uppercase;letter-spacing:.06em;">$1</h4>');
+  s = s.replace(/^### (.+)$/gm, '<h3 style="color:#60c8fa;font-size:13px;font-weight:600;margin:16px 0 6px;">$1</h3>');
+  s = s.replace(/^## (.+)$/gm, '<h2 style="color:#5ecdd1;font-size:15px;font-weight:700;margin:22px 0 8px;border-bottom:1px solid var(--border);padding-bottom:5px;">$1</h2>');
+  s = s.replace(/^# (.+)$/gm, '<h1 style="color:#5ecdd1;font-size:20px;font-weight:800;margin:28px 0 12px;padding-bottom:8px;border-bottom:2px solid var(--ust-teal);">$1</h1>');
+
+  // Pass 5: Blockquotes
+  s = s.replace(/^> (.+)$/gm, '<blockquote style="border-left:3px solid var(--ust-teal);margin:8px 0;padding:6px 14px;color:var(--muted);font-style:italic;background:rgba(0,110,116,.06);border-radius:0 4px 4px 0;">$1</blockquote>');
+
+  // Pass 6: Bold/italic/inline-code
+  s = s.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
+  s = s.replace(/\*\*(.+?)\*\*/g, '<strong style="color:var(--text);">$1</strong>');
+  s = s.replace(/\*(.+?)\*/g, '<em style="color:var(--muted);">$1</em>');
+  s = s.replace(/`([^`\x00]+)`/g, '<code style="background:var(--surface2);padding:2px 5px;border-radius:3px;font-size:12px;">$1</code>');
+
+  // Pass 7: Unordered lists (wrap consecutive items)
+  s = s.replace(/((?:^[*-] .+\n?)+)/gm, (block: string) => {
+    const items = block.trim().split('\n').map(line => {
+      const text = line.replace(/^[*-] /, '');
+      return `<li style="display:flex;gap:8px;margin:3px 0;"><span style="color:#5ecdd1;flex-shrink:0;">•</span><span>${text}</span></li>`;
+    }).join('');
+    return `<ul style="list-style:none;padding-left:16px;margin:8px 0;">${items}</ul>`;
+  });
+
+  // Pass 7b: Ordered lists (wrap consecutive items)
+  s = s.replace(/((?:^\d+\. .+\n?)+)/gm, (block: string) => {
+    const items = block.trim().split('\n').map(line => {
+      const m = line.match(/^(\d+)\. (.+)/);
+      if (!m) return '';
+      return `<li style="display:flex;gap:8px;margin:3px 0;"><span style="color:#fbbf24;min-width:18px;">${m[1]}.</span><span>${m[2]}</span></li>`;
+    }).join('');
+    return `<ol style="list-style:none;padding-left:16px;margin:8px 0;">${items}</ol>`;
+  });
+
+  // Pass 8: Paragraphs and line breaks
+  s = s.replace(/\n\n/g, '</p><p style="margin:8px 0;line-height:1.7;">');
+  s = s.replace(/\n/g, '<br>');
+  s = `<p style="margin:8px 0;line-height:1.7;">${s}</p>`;
+
+  // Pass 9: Re-inject code blocks
+  s = s.replace(/\x00BLOCK(\d+)\x00/g, (_m: string, idx: string) => blocks[parseInt(idx, 10)]);
+
+  return s;
 }
 
 async function exportPlatformMd(): Promise<void> {
