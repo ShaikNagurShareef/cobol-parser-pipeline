@@ -5,7 +5,7 @@ Reads the appropriate API key automatically.
 
 Supported providers:
   openai   → OPENAI_API_KEY  → gpt-4o (default)
-  gemini   → GEMINI_API_KEY  → gemini-1.5-pro (default)
+  gemini   → GEMINI_API_KEY  → gemini-2.0-flash (default)
 
 Override the model:
   LLM_MODEL=gpt-4o-mini  python llm/demo_spec.py ...
@@ -23,7 +23,7 @@ import os
 
 _PROVIDER_DEFAULTS = {
     "openai":  "gpt-4o",
-    "gemini":  "gemini-1.5-pro",
+    "gemini":  "gemini-2.0-flash",
 }
 
 

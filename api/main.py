@@ -121,7 +121,7 @@ def get_settings():
     return {
         "llm_provider":    os.environ.get("LLM_PROVIDER", "openai"),
         "openai_model":    os.environ.get("OPENAI_MODEL", "gpt-4o"),
-        "gemini_model":    os.environ.get("GEMINI_MODEL", "gemini-1.5-pro"),
+        "gemini_model":    os.environ.get("GEMINI_MODEL", "gemini-2.0-flash"),
         "pipeline_workers": int(os.environ.get("PIPELINE_WORKERS", "4")),
         "openai_key_set":  bool(os.environ.get("OPENAI_API_KEY")),
         "gemini_key_set":  bool(os.environ.get("GEMINI_API_KEY")),

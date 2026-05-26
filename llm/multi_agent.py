@@ -32,7 +32,7 @@ def _call_llm(prompt: str) -> str:
     elif provider == "gemini":
         import google.generativeai as genai
         genai.configure(api_key=os.environ.get("GEMINI_API_KEY", ""))
-        model = genai.GenerativeModel(os.environ.get("GEMINI_MODEL", "gemini-1.5-pro"))
+        model = genai.GenerativeModel(os.environ.get("GEMINI_MODEL", "gemini-2.0-flash"))
         return model.generate_content(prompt).text or ""
     elif provider == "anthropic":
         import anthropic
