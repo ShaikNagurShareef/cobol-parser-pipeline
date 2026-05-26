@@ -44,7 +44,7 @@ A production-grade, deterministic **ANTLR4-based COBOL analysis and forward-engi
 
 ---
 
-## Competitive Differentiators — What No Other Submission Has
+## Competitive Differentiators
 
 These are the technical features that set this submission apart. Each is fully implemented, tested, and demoed in the screenshots below.
 
