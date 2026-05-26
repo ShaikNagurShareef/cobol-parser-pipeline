@@ -24,6 +24,7 @@ from pipeline.ingest import ingest_file, CPY_DIRS
 from parsers.jcl.jcl_parser import parse_jcl_file
 from parsers.bms.bms_parser import parse_bms_file
 from parsers.csd.csd_parser import parse_csd_file
+from parsers.cobol.copybook_parser import persist_catalog as persist_copybook_catalog
 from artifacts import layer3_intra, layer4_inter, layer5_business, layer7_quality
 from parsers.cobol.ast_normalizer import normalize
 from parsers.cobol.proleap_wrapper import parse_cobol_file
@@ -53,6 +54,22 @@ def run_batch(
 ) -> dict:
     start = time.perf_counter()
     init_db(db_path)
+
+    # ── Phase 0: Copybook catalog (all .cpy dirs) ─────────────────────────────
+    console.print("\n[bold cyan]Phase 0: Copybook catalog[/bold cyan]")
+    cpy_dirs = [
+        PROJECT_ROOT / "external" / "carddemo" / "app" / "cpy",
+        PROJECT_ROOT / "external" / "carddemo" / "app" / "cpy-bms",
+        PROJECT_ROOT / "external" / "carddemo" / "app" / "cpy-stubs",
+    ]
+    total_cpy = sum(
+        len(list(d.glob("*.cpy")) + list(d.glob("*.CPY")))
+        for d in cpy_dirs if d.exists()
+    )
+    console.print(f"  Scanning {total_cpy} copybooks across {len(cpy_dirs)} directories")
+    with transaction(db_path) as con:
+        cpy_ok = persist_copybook_catalog(con, cpy_dirs)
+    console.print(f"  Copybook catalog: {cpy_ok}/{total_cpy} parsed OK")
 
     # ── Phase 1: COBOL files (parallel) — Layers 1 + 2 ──────────────────────
     cbl_files = _topo_sort_files(
@@ -96,10 +113,15 @@ def run_batch(
     print(f"Layer 4 call graph done: {resolved} callees resolved")
     console.print(f"  Resolved {resolved} dynamic callee UUIDs")
 
-    # ── Phase 4: JCL ─────────────────────────────────────────────────────────
-    jcl_files = sorted(jcl_dir.glob("*.jcl")) + sorted(jcl_dir.glob("*.JCL")) \
-                + sorted(jcl_dir.glob("*.jcl.*"))
-    console.print(f"\n[bold cyan]Phase 4: JCL[/bold cyan] — {len(jcl_files)} files")
+    # ── Phase 4: JCL + PROC ──────────────────────────────────────────────────
+    proc_dir = PROJECT_ROOT / "external" / "carddemo" / "app" / "proc"
+    jcl_files = (
+        sorted(jcl_dir.glob("*.jcl")) + sorted(jcl_dir.glob("*.JCL"))
+        + sorted(jcl_dir.glob("*.jcl.*"))
+        + sorted(proc_dir.glob("*.prc")) + sorted(proc_dir.glob("*.PRC"))
+        + sorted(proc_dir.glob("*.proc")) + sorted(proc_dir.glob("*.PROC"))
+    )
+    console.print(f"\n[bold cyan]Phase 4: JCL+PROC[/bold cyan] — {len(jcl_files)} files")
     jcl_ok = 0
     for f in jcl_files:
         try:
@@ -107,7 +129,7 @@ def run_batch(
             jcl_ok += 1
         except Exception as exc:
             console.print(f"  [red]JCL FAIL[/red] {f.name}: {exc}")
-    console.print(f"  JCL: {jcl_ok}/{len(jcl_files)} OK")
+    console.print(f"  JCL+PROC: {jcl_ok}/{len(jcl_files)} OK")
 
     # ── Phase 4b: JCL–COBOL dataset binding (G3) ─────────────────────────────
     console.print("\n[bold cyan]Phase 4b: JCL–COBOL binding[/bold cyan]")

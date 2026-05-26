@@ -7,7 +7,7 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css" />
+  <link id="hljs-theme" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
   <style>
@@ -30,6 +30,133 @@
       --text:    #f0f4f4;
       --muted:   #7e8c9a;
     }
+
+    /* ── Light Theme ── */
+    [data-theme="light"] {
+      --bg:       #f4f7fb;
+      --surface:  #ffffff;
+      --surface2: #edf1f7;
+      --border:   #d4dde8;
+      --text:     #0e1823;
+      --muted:    #4a5c6e;
+      --ust-dark: #ffffff;
+      --ust-mid:  #edf1f7;
+      --ust-edge: #d4dde8;
+    }
+
+    /* Body & scrollbar */
+    [data-theme="light"] body { background: var(--bg); }
+    [data-theme="light"] ::-webkit-scrollbar-track { background: #edf1f7; }
+    [data-theme="light"] ::-webkit-scrollbar-thumb { background: #aabccc; border-radius: 3px; }
+
+    /* Cards — add depth with shadow */
+    [data-theme="light"] .card { box-shadow: 0 1px 4px rgba(14,24,35,.06), 0 6px 18px rgba(14,24,35,.04); border-color: #dae2ed; }
+    [data-theme="light"] .card-sm { box-shadow: 0 1px 3px rgba(14,24,35,.05); border-color: #dae2ed; }
+    [data-theme="light"] .stat-card { box-shadow: 0 2px 10px rgba(14,24,35,.08); }
+
+    /* Topbar */
+    [data-theme="light"] #topbar { box-shadow: 0 1px 10px rgba(14,24,35,.08); }
+
+    /* Sidebar stays dark navy in light mode — pin all text to light values */
+    [data-theme="light"] #sidebar { border-right-color: #1a4460; }
+    [data-theme="light"] .nav-item { color: #8fb8cc; }
+    [data-theme="light"] .nav-item:hover { background: #004658; color: #d0eaf5; }
+    [data-theme="light"] .nav-item.active { background: #004b5c; color: #5ecdd1; border-left-color: var(--ust-teal); }
+    [data-theme="light"] .nav-section { color: #6a9ab5; }
+
+    /* Tables */
+    [data-theme="light"] td { border-bottom-color: #e4eaf2; }
+    [data-theme="light"] tr:hover td { background: rgba(0,151,171,.07); }
+
+    /* Pipeline log — keep dark (it's a terminal) */
+    [data-theme="light"] #pipeline-log { background: #111820; color: #c8d8e0; border-color: #d4dde8; }
+
+    /* Stat cards — vivid saturated gradients, not washed-out pastels */
+    [data-theme="light"] .stat-card.p1,  [data-theme="light"] .stat-card.orange { background: linear-gradient(135deg,#e2fafb 0%,#a8e8ec 100%); border-color: #6ed8de; }
+    [data-theme="light"] .stat-card.p2,  [data-theme="light"] .stat-card.sky    { background: linear-gradient(135deg,#e2f4ff 0%,#a8d8f8 100%); border-color: #5cc0f0; }
+    [data-theme="light"] .stat-card.p3,  [data-theme="light"] .stat-card.navy   { background: linear-gradient(135deg,#e2f0ff 0%,#a8d0f8 100%); border-color: #5ab8f0; }
+    [data-theme="light"] .stat-card.p4,  [data-theme="light"] .stat-card.teal   { background: linear-gradient(135deg,#ddf2ff 0%,#a0ccf8 100%); border-color: #50b8f0; }
+    [data-theme="light"] .stat-card.p5,  [data-theme="light"] .stat-card.green  { background: linear-gradient(135deg,#e2faf2 0%,#90e8c4 100%); border-color: #40d098; }
+    [data-theme="light"] .stat-card.p6,  [data-theme="light"] .stat-card.amber  { background: linear-gradient(135deg,#fffbea 0%,#fde272 100%); border-color: #f8c000; }
+    [data-theme="light"] .stat-card.p7,  [data-theme="light"] .stat-card.red    { background: linear-gradient(135deg,#fff0f1 0%,#fdb8c0 100%); border-color: #f87888; }
+    [data-theme="light"] .stat-card.p8,  [data-theme="light"] .stat-card.cyan   { background: linear-gradient(135deg,#ddfaff 0%,#90eaf8 100%); border-color: #20d8f0; }
+    [data-theme="light"] .stat-card::before { opacity: .3; }
+
+    /* Stat card numbers — vivid, fully saturated, high contrast */
+    [data-theme="light"] #s-programs,
+    [data-theme="light"] #s-paragraphs,
+    [data-theme="light"] #s-data_items,
+    [data-theme="light"] #s-statements,
+    [data-theme="light"] #s-call_edges,
+    [data-theme="light"] #s-cics_verbs,
+    [data-theme="light"] #s-cobol_files,
+    [data-theme="light"] #s-copybook_files { color: #007882 !important; }
+    [data-theme="light"] #s-business_rules { color: #008858 !important; }
+    [data-theme="light"] #s-risks          { color: #c47800 !important; }
+    [data-theme="light"] #s-db2_statements { color: #d01818 !important; }
+    [data-theme="light"] #s-jcl_files      { color: #c47800 !important; }
+    [data-theme="light"] #s-bms_files      { color: #008858 !important; }
+    [data-theme="light"] #s-csd_files      { color: #6a10cc !important; }
+    [data-theme="light"] #s-asm_files      { color: #c85200 !important; }
+
+    /* Re-map vivid dark-mode label colors to saturated-but-readable light equivalents */
+    [data-theme="light"] .card-sm [style*="color:#5ecdd1"],
+    [data-theme="light"] .card [style*="color:#5ecdd1"]  { color: #007882 !important; }
+    [data-theme="light"] .card [style*="color:#60c8fa"]  { color: #0070c0 !important; }
+    [data-theme="light"] .card [style*="color:#d876d6"]  { color: #a010a8 !important; }
+    [data-theme="light"] .card [style*="color:#55d4eb"]  { color: #0090b0 !important; }
+    [data-theme="light"] .card [style*="color:#34d399"]  { color: #008858 !important; }
+    [data-theme="light"] .card [style*="color:#4ade80"]  { color: #008848 !important; }
+    [data-theme="light"] .card [style*="color:#fbbf24"]  { color: #c47800 !important; }
+    [data-theme="light"] .card [style*="color:#f87171"]  { color: #d01818 !important; }
+    [data-theme="light"] .card [style*="color:#f97316"]  { color: #c05000 !important; }
+    [data-theme="light"] .card [style*="color:#a78bfa"]  { color: #6a10cc !important; }
+
+    /* Badges — vivid tints with deep text */
+    [data-theme="light"] .badge-teal   { background: #c0f0f4; color: #006068; font-weight:700; }
+    [data-theme="light"] .badge-orange { background: #c0f0f4; color: #006068; font-weight:700; }
+    [data-theme="light"] .badge-sky    { background: #bce4ff; color: #004e90; font-weight:700; }
+    [data-theme="light"] .badge-green  { background: #b8f0d8; color: #005a38; font-weight:700; }
+    [data-theme="light"] .badge-red    { background: #ffd8d8; color: #a01010; font-weight:700; }
+    [data-theme="light"] .badge-amber  { background: #ffeea0; color: #8a5800; font-weight:700; }
+    [data-theme="light"] .badge-blue   { background: #bcd8f8; color: #004488; font-weight:700; }
+    [data-theme="light"] .badge-purple { background: #e8d8ff; color: #500090; font-weight:700; }
+    [data-theme="light"] .badge-gray   { background: #e0e8f2; color: #3a4c5e; font-weight:700; }
+
+    /* Buttons */
+    [data-theme="light"] .btn-secondary { background: #edf1f7; border-color: #c8d4e4; color: #0e1823; }
+    [data-theme="light"] .btn-secondary:hover { background: #dcf5f7; border-color: var(--ust-teal); color: var(--text); }
+    [data-theme="light"] .btn-danger  { background: #fff0f0; color: #c01010; border-color: #f0a0a0; }
+    [data-theme="light"] .btn-success { background: #e8faf2; color: #006040; border-color: #70d8a8; }
+
+    /* Diagram buttons */
+    [data-theme="light"] .diag-btn { background: #edf1f7; color: #4a5c6e; border-color: #c8d4e4; }
+    [data-theme="light"] .diag-btn.active, [data-theme="light"] .diag-btn:hover { background: #c8f2f6; color: #006870; border-color: var(--ust-teal); font-weight:600; }
+
+    /* Tabs */
+    [data-theme="light"] .tab.active { color: #007882; border-bottom-color: var(--ust-teal); }
+    [data-theme="light"] .tab:hover:not(.active) { color: #0e1823; }
+
+    /* Layer explorer */
+    [data-theme="light"] .lx-flow-node { background: #edf3fa; border-color: #c8d4e4; }
+    [data-theme="light"] .lx-flow-node:hover { background: #c8f2f6; border-color: var(--ust-teal); }
+    [data-theme="light"] .lx-card { box-shadow: 0 1px 4px rgba(14,24,35,.05); }
+    [data-theme="light"] .lx-card:hover { border-color: var(--ust-teal2); }
+
+    /* Progress bar */
+    [data-theme="light"] .progress-bar { background: #d4dde8; }
+
+    /* Input / select */
+    [data-theme="light"] select option { background: #ffffff; color: #0e1823; }
+
+    /* Section sub-title */
+    [data-theme="light"] .section-sub { color: #4a5c6e; }
+
+    /* Severity */
+    [data-theme="light"] .sev-HIGH   { color: #c81010; font-weight:700; }
+    [data-theme="light"] .sev-MEDIUM { color: #c47800; font-weight:700; }
+    [data-theme="light"] .sev-LOW    { color: #008848; font-weight:700; }
+
     * { box-sizing: border-box; }
     body { background: var(--bg); color: var(--text); font-family: 'Inter', system-ui, sans-serif; margin: 0; min-height: 100vh; }
     ::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -151,6 +278,15 @@
     /* Mermaid */
     .mermaid-wrap { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 20px; overflow: auto; }
 
+    /* Architecture diagram zoom toolbar + fullscreen */
+    .arch-zoom-bar { display:flex; gap:6px; align-items:center; padding:6px 0 4px; flex-wrap:wrap; }
+    .arch-zoom-bar button { padding:3px 10px; font-size:12px; }
+    .arch-zoom-label { font-size:11px; color: var(--muted); margin-left:4px; }
+    .arch-level-bar { display:flex; gap:6px; margin-bottom:8px; }
+    .arch-level-bar button { padding:4px 12px; font-size:12px; }
+    .arch-fullscreen { position: fixed !important; inset: 0 !important; z-index: 1000 !important; overflow: auto !important; padding: 20px !important; background: var(--bg) !important; margin: 0 !important; max-width: none !important; }
+    .arch-fullscreen .mermaid-wrap { max-height: calc(100vh - 220px) !important; }
+
     /* Section */
     .section-title { font-size: 22px; font-weight: 700; margin-bottom: 4px; }
     .section-sub   { color: var(--muted); font-size: 14px; margin-bottom: 24px; }
@@ -247,6 +383,10 @@
     </div>
 
     <div class="nav-section">Visualizations</div>
+    <div class="nav-item" onclick="navigate('copybooks')">
+      <svg class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+      Copybooks
+    </div>
     <div class="nav-item" onclick="navigate('layers')">
       <svg class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
       Layer Explorer
@@ -301,6 +441,12 @@
       <span>Pipeline running…</span>
     </span>
     <span id="db-badge" style="font-size:12px;color:var(--muted);">DB: checking…</span>
+    <button id="theme-toggle-btn" onclick="toggleTheme()" title="Toggle light/dark theme" style="background:none;border:1px solid var(--border);border-radius:8px;cursor:pointer;padding:5px 10px;color:var(--muted);display:flex;align-items:center;gap:5px;font-size:12px;transition:all .15s;" onmouseover="this.style.borderColor='var(--ust-teal)'" onmouseout="this.style.borderColor='var(--border)'">
+      <span id="theme-icon">
+        <!-- sun icon (shown in dark mode) -->
+        <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+      </span>
+    </button>
     <a href="/docs" target="_blank" class="btn btn-secondary" style="font-size:12px;padding:5px 12px;">API Docs ↗</a>
   </div>
 </header>
@@ -312,6 +458,9 @@
 <section id="page-dashboard" class="fade-in">
   <div class="section-title">Pipeline Overview</div>
   <div class="section-sub">Live artifact metrics across all 7 layers of the AWS CardDemo corpus</div>
+  <div id="active-run-info" style="margin-bottom:14px;padding:8px 14px;background:var(--surface2);border-radius:6px;border-left:3px solid #4ade80;min-height:28px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+    <span style="color:var(--muted);font-size:11px;">Loading active dataset…</span>
+  </div>
 
   <!-- Stat cards -->
   <div style="margin-bottom:28px;">
@@ -501,7 +650,7 @@
         <div style="width:4px;height:28px;background:#d876d6;border-radius:2px;"></div>
         <div>
           <div style="font-weight:700;font-size:15px;">Knowledge Graph — Interactive Repository Map</div>
-          <div style="font-size:12px;color:var(--muted);margin-top:2px;">Click any node to explore — programs (teal), copybooks (blue), JCL jobs (amber) · Edges show call/COPY/CICS relationships</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:2px;">Click any node to explore — programs (teal), JCL jobs (amber) · Edges: CALL, CICS/TX, JCL EXEC, Shared File, COPY</div>
         </div>
       </div>
       <div style="display:flex;gap:8px;align-items:center;">
@@ -551,15 +700,22 @@
             ✦ Explain with AI
           </button>
         </div>
-        <div id="kg-pane-explain" style="flex:1;overflow-y:auto;padding:14px 16px;font-size:12px;color:var(--text);line-height:1.7;white-space:pre-wrap;"></div>
+        <div id="kg-pane-explain" style="flex:1;overflow-y:auto;padding:14px 16px;font-size:12px;color:var(--text);line-height:1.7;white-space:pre-wrap;word-break:break-word;"></div>
       </div>
     </div>
     <!-- Legend -->
-    <div style="display:flex;gap:20px;padding:10px 20px;border-top:1px solid var(--border);font-size:11px;color:var(--muted);">
+    <div style="display:flex;gap:16px;flex-wrap:wrap;padding:10px 20px;border-top:1px solid var(--border);font-size:11px;color:var(--muted);">
       <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#5ecdd1;margin-right:4px;vertical-align:middle;"></span>COBOL Program</span>
       <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#60c8fa;margin-right:4px;vertical-align:middle;"></span>Copybook</span>
       <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#fbbf24;margin-right:4px;vertical-align:middle;"></span>JCL Job</span>
-      <span>— CALL edge &nbsp; ··· COPY &nbsp; — TX flow</span>
+      <span style="border-left:1px solid var(--border);padding-left:16px;">
+        <span style="color:#5ecdd1;font-weight:700;">—</span> CALL &nbsp;
+        <span style="color:#d876d6;font-weight:700;">—</span> CICS XCTL &nbsp;
+        <span style="color:#a78bfa;font-weight:700;">—</span> NAV (screen flow) &nbsp;
+        <span style="color:#fbbf24;font-weight:700;">—</span> JCL EXEC &nbsp;
+        <span style="color:#34d399;font-weight:700;">···</span> Shared File &nbsp;
+        <span style="color:#60c8fa;font-weight:700;">···</span> COPY
+      </span>
     </div>
   </div>
 </section>
@@ -725,6 +881,7 @@
       <div class="tab" onclick="switchTab('callgraph')">Call Graph</div>
       <div class="tab" onclick="switchTab('bizrules')">Business Rules</div>
       <div class="tab" onclick="switchTab('fileio')">File I/O</div>
+      <div class="tab" onclick="switchTab('copybooks')">Copybooks</div>
       <div class="tab" onclick="switchTab('progrisk')">Risks</div>
       <div class="tab" onclick="switchTab('source')">Source Code</div>
     </div>
@@ -744,12 +901,70 @@
     <div id="tab-fileio" class="tab-panel fade-in" style="display:none;">
       <div class="card" style="overflow:auto;"><table><thead><tr><th>File</th><th>Operation</th><th>Copybook</th></tr></thead><tbody id="fio-tbody"></tbody></table></div>
     </div>
+    <div id="tab-copybooks" class="tab-panel fade-in" style="display:none;">
+      <div class="card" style="overflow:auto;">
+        <table><thead><tr><th>Copybook</th><th>Type</th><th>Data Items</th><th>Line</th><th>Replacing</th></tr></thead>
+        <tbody id="prog-cpy-tbody"></tbody></table>
+      </div>
+    </div>
     <div id="tab-progrisk" class="tab-panel fade-in" style="display:none;">
       <div class="card" style="overflow:auto;"><table><thead><tr><th>Kind</th><th>Severity</th><th>Note</th><th>Line</th></tr></thead><tbody id="risk-tbody"></tbody></table></div>
     </div>
     <div id="tab-source" class="tab-panel fade-in" style="display:none;">
       <div class="card" id="prog-source-container" style="max-height:540px;overflow:auto;">
         <span style="color:var(--muted);font-size:13px;">Loading source code…</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── COPYBOOKS ─────────────────────────────────────────────────────────── -->
+<section id="page-copybooks" class="fade-in" style="display:none;">
+  <div class="section-title">Copybook Browser</div>
+  <div class="section-sub">All COBOL copybooks scanned — with data item counts, consumer programs, and field catalog</div>
+
+  <div style="display:flex;gap:12px;margin-bottom:20px;align-items:center;flex-wrap:wrap;">
+    <input id="cpy-search" type="text" placeholder="Search copybooks…" style="flex:1;max-width:320px;" oninput="filterCopybooks()" />
+    <span id="cpy-count" style="font-size:13px;color:var(--muted);"></span>
+  </div>
+
+  <div class="card" style="overflow:auto;margin-bottom:20px;">
+    <table id="cpy-table">
+      <thead><tr>
+        <th>Name</th><th>Type</th><th>Data Items</th><th>Used By</th><th>Status</th><th></th>
+      </tr></thead>
+      <tbody id="cpy-tbody"></tbody>
+    </table>
+  </div>
+
+  <!-- Copybook detail panel -->
+  <div id="cpy-detail" style="display:none;margin-top:16px;" class="fade-in">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+      <button class="btn btn-secondary" style="font-size:12px;padding:6px 12px;" onclick="closeCpyDetail()">← Back</button>
+      <h2 id="cpy-detail-name" style="font-size:18px;font-weight:700;color:#60c8fa;"></h2>
+      <span id="cpy-detail-type" style="font-size:12px;background:#004b5c;color:#5ecdd1;padding:3px 10px;border-radius:20px;"></span>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+      <!-- Data items panel -->
+      <div class="card">
+        <div style="font-size:13px;font-weight:600;color:var(--muted);margin-bottom:10px;text-transform:uppercase;letter-spacing:.05em;">Data Items (<span id="cpy-item-count">0</span>)</div>
+        <div style="overflow:auto;max-height:400px;">
+          <table style="font-size:12px;">
+            <thead><tr><th>Name</th><th>Level</th><th>PIC</th><th>Type</th></tr></thead>
+            <tbody id="cpy-items-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+      <!-- Consumer programs panel -->
+      <div class="card">
+        <div style="font-size:13px;font-weight:600;color:var(--muted);margin-bottom:10px;text-transform:uppercase;letter-spacing:.05em;">Consumer Programs (<span id="cpy-consumer-count">0</span>)</div>
+        <div style="overflow:auto;max-height:400px;">
+          <table style="font-size:12px;">
+            <thead><tr><th>Program</th><th>Line</th><th>Replacing</th></tr></thead>
+            <tbody id="cpy-consumers-tbody"></tbody>
+          </table>
+        </div>
       </div>
     </div>
   </div>
@@ -912,15 +1127,15 @@
 
 <!-- ─── TRANSFORM ──────────────────────────────────────────────────────────── -->
 <section id="page-transform" class="fade-in" style="display:none;">
-  <div class="section-title">Forward Engineering — Portfolio Transformation</div>
-  <div class="section-sub">Complete repository transformation analysis — all COBOL programs, JCL batch jobs, copybooks, CICS transactions, and data flows modernised together as a coherent system</div>
+  <div class="section-title">Forward Engineering — Modernization Workflow</div>
+  <div class="section-sub">Four-phase workflow: analyze the portfolio, map source to target architecture, plan the migration with human approval, then generate specifications and Spring Boot code.</div>
 
   <!-- Portfolio readiness banner -->
   <div class="card" style="margin-bottom:20px;border-left:3px solid #5ecdd1;">
     <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
       <div>
         <div style="font-weight:700;font-size:14px;margin-bottom:4px;">Application Portfolio — Full Scope</div>
-        <div style="font-size:12px;color:var(--muted);">Ingested artifacts: all programs, copybooks, JCL jobs, BMS maps, CICS transactions. Transformation reasoning is grounded against all 7 artifact layers.</div>
+        <div style="font-size:12px;color:var(--muted);">All artifacts ingested — programs, copybooks, JCL jobs, BMS maps, CICS transactions. Every step in this workflow is grounded against the 7-layer artifact database.</div>
       </div>
       <div id="transform-portfolio-stats" style="display:flex;gap:16px;font-size:12px;">
         <div style="text-align:center;"><div id="tx-port-programs" style="font-size:18px;font-weight:700;color:#5ecdd1;">—</div><div style="color:var(--muted);">Programs</div></div>
@@ -931,20 +1146,10 @@
     </div>
   </div>
 
-  <!-- Why not line-to-line info box -->
-  <div class="card" style="margin-bottom:20px;background:rgba(96,200,250,.07);border:1px solid rgba(96,200,250,.2);">
-    <div style="font-weight:600;font-size:13px;color:#60c8fa;margin-bottom:8px;">Why transformation is not line-to-line transpilation</div>
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;font-size:12px;color:var(--muted);line-height:1.7;">
-      <div><strong style="color:var(--text);">COBOL paradigm</strong><br>Procedural, record-oriented, implicit state via Working-Storage. No objects, no encapsulation. Data and logic are flat.</div>
-      <div><strong style="color:var(--text);">Java/OO paradigm</strong><br>Object-oriented, hexagonal architecture, DI containers. State is encapsulated in objects. Logic is in methods. I/O via repositories.</div>
-      <div><strong style="color:var(--text);">What the platform does</strong><br>Uses AST + CFG + business rules + data dictionary to understand intent, then architects equivalent OO components — not a character-for-character translation.</div>
-    </div>
-  </div>
-
   <!-- Transformation configuration -->
   <div class="card" style="margin-bottom:20px;" id="transform-setup-card">
     <div style="font-weight:600;font-size:14px;margin-bottom:16px;">Transformation Configuration</div>
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:14px;align-items:end;">
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;align-items:end;">
       <div>
         <div style="font-size:12px;color:var(--muted);margin-bottom:6px;">Target Framework</div>
         <select id="transform-framework" style="width:100%;">
@@ -972,31 +1177,256 @@
           <option value="Modular Monolith">Modular Monolith first</option>
         </select>
       </div>
-      <button id="transform-start-btn" class="btn btn-primary" onclick="startTransform()" style="height:36px;white-space:nowrap;">
+    </div>
+  </div>
+
+  <!-- 4-Phase tabs -->
+  <div class="tabs" id="tx-tabs">
+    <div class="tab active" id="tx-tab-1" onclick="switchTxTab(1)">1 · Portfolio Analysis</div>
+    <div class="tab" id="tx-tab-2" onclick="switchTxTab(2)">2 · Architecture Mapping</div>
+    <div class="tab" id="tx-tab-3" onclick="switchTxTab(3)">3 · Migration Plan</div>
+    <div class="tab" id="tx-tab-4" onclick="switchTxTab(4)">4 · Specifications &amp; Code</div>
+  </div>
+
+  <!-- ── Tab 1: Portfolio Analysis ───────────────────────────────────── -->
+  <div id="tx-pane-1" class="tx-pane">
+    <div style="display:flex;justify-content:flex-end;margin-bottom:12px;">
+      <button id="transform-start-btn" class="btn btn-primary" onclick="startTransform()">
         <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
         Analyze Portfolio
       </button>
     </div>
+    <div id="transform-output-area" style="display:none;">
+      <div id="transform-sections" style="display:flex;flex-direction:column;gap:12px;"></div>
+      <div id="transform-complete" style="display:none;margin-top:16px;" class="card">
+        <div style="font-size:18px;font-weight:700;color:#4ade80;margin-bottom:8px;">Portfolio Analysis Complete</div>
+        <div style="font-size:13px;color:var(--muted);margin-bottom:16px;">Full portfolio transformation analysis generated and grounded against artifact DB.</div>
+        <div style="display:flex;gap:10px;">
+          <button class="btn btn-primary" onclick="downloadTransformOutput('md')">Download Markdown</button>
+          <button class="btn btn-secondary" onclick="downloadTransformOutput('pdf')">Download PDF</button>
+          <button class="btn btn-secondary" onclick="switchTxTab(2)" style="margin-left:auto;">Proceed to Architecture &rarr;</button>
+        </div>
+      </div>
+    </div>
+    <!-- Hidden compatibility nodes -->
+    <div id="transform-progress-bar" style="display:none;"></div>
+    <div id="transform-step-panel" style="display:none;"></div>
+    <div id="transform-step-indicators" style="display:none;"></div>
   </div>
 
-  <!-- Streaming output area -->
-  <div id="transform-output-area" style="display:none;">
-    <!-- Section accordion injected by JS -->
-    <div id="transform-sections" style="display:flex;flex-direction:column;gap:12px;"></div>
-    <div id="transform-complete" style="display:none;margin-top:16px;" class="card">
-      <div style="font-size:18px;font-weight:700;color:#4ade80;margin-bottom:8px;">✓ Portfolio Analysis Complete</div>
-      <div style="font-size:13px;color:var(--muted);margin-bottom:16px;">Full portfolio transformation analysis generated and grounded against artifact DB.</div>
-      <div style="display:flex;gap:10px;">
-        <button class="btn btn-primary" onclick="downloadTransformOutput('md')">⬇ Download Markdown</button>
-        <button class="btn btn-secondary" onclick="downloadTransformOutput('pdf')">⬇ Download PDF</button>
+  <!-- ── Tab 2: Architecture Mapping ─────────────────────────────────── -->
+  <div id="tx-pane-2" class="tx-pane" style="display:none;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <div style="font-size:13px;color:var(--muted);">Side-by-side source and target architectures, plus a migration mapping table grounded in the artifact DB.</div>
+      <button id="tx-arch-btn" class="btn btn-primary" onclick="loadTxArchitecture()">
+        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82"/></svg>
+        Analyze Architecture
+      </button>
+    </div>
+
+    <div id="tx-arch-output" style="display:none;">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
+        <div id="tx-arch-source-card" class="card" style="border-left:3px solid #fbbf24;">
+          <div style="font-weight:700;font-size:14px;color:#fbbf24;margin-bottom:10px;">Source Architecture (Mainframe)</div>
+          <div class="arch-level-bar">
+            <button id="arch-source-hl-btn" class="btn btn-primary" onclick="archSetLevel('source','hl')">High Level</button>
+            <button id="arch-source-ll-btn" class="btn btn-secondary" onclick="archSetLevel('source','ll')">Low Level</button>
+          </div>
+          <div id="tx-arch-source-stats" style="font-size:12px;color:var(--muted);line-height:1.7;margin-bottom:10px;"></div>
+          <div class="arch-zoom-bar">
+            <button class="btn btn-secondary" onclick="archZoom('source', 1.25)" title="Zoom in">&#xff0b;</button>
+            <button class="btn btn-secondary" onclick="archZoom('source', 0.8)" title="Zoom out">&#xff0d;</button>
+            <button class="btn btn-secondary" onclick="archZoom('source', 0)" title="Reset zoom">&#x27f3;</button>
+            <button class="btn btn-secondary" onclick="archZoom('source', -1)" title="Toggle fullscreen">&#x2922;</button>
+            <span id="arch-source-zoom-label" class="arch-zoom-label">100%</span>
+          </div>
+          <div id="tx-arch-source-wrap" class="mermaid-wrap" style="min-height:520px;max-height:75vh;overflow:auto;"><pre id="tx-arch-source-mermaid" class="mermaid" style="background:none;"></pre></div>
+        </div>
+        <div id="tx-arch-target-card" class="card" style="border-left:3px solid #34d399;">
+          <div style="font-weight:700;font-size:14px;color:#34d399;margin-bottom:10px;">Target Architecture (Cloud-Native)</div>
+          <div class="arch-level-bar">
+            <button id="arch-target-hl-btn" class="btn btn-primary" onclick="archSetLevel('target','hl')">High Level</button>
+            <button id="arch-target-ll-btn" class="btn btn-secondary" onclick="archSetLevel('target','ll')">Low Level</button>
+          </div>
+          <div id="tx-arch-target-stats" style="font-size:12px;color:var(--muted);line-height:1.7;margin-bottom:10px;"></div>
+          <div class="arch-zoom-bar">
+            <button class="btn btn-secondary" onclick="archZoom('target', 1.25)" title="Zoom in">&#xff0b;</button>
+            <button class="btn btn-secondary" onclick="archZoom('target', 0.8)" title="Zoom out">&#xff0d;</button>
+            <button class="btn btn-secondary" onclick="archZoom('target', 0)" title="Reset zoom">&#x27f3;</button>
+            <button class="btn btn-secondary" onclick="archZoom('target', -1)" title="Toggle fullscreen">&#x2922;</button>
+            <span id="arch-target-zoom-label" class="arch-zoom-label">100%</span>
+          </div>
+          <div id="tx-arch-target-wrap" class="mermaid-wrap" style="min-height:520px;max-height:75vh;overflow:auto;"><pre id="tx-arch-target-mermaid" class="mermaid" style="background:none;"></pre></div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:16px;">
+        <div style="font-weight:700;font-size:14px;margin-bottom:10px;">Migration Mapping <span style="font-weight:400;font-size:12px;color:var(--muted);">— click a target service to drill down</span></div>
+        <div style="max-height:420px;overflow:auto;">
+          <table>
+            <thead><tr>
+              <th>Source Component</th>
+              <th>Target Service</th>
+              <th>Strategy</th>
+              <th>Effort</th>
+              <th>Risk</th>
+              <th style="width:44px;"></th>
+            </tr></thead>
+            <tbody id="tx-arch-mapping-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Per-Service Drill-Down Panel -->
+      <div id="tx-service-detail-panel" class="card" style="display:none;margin-bottom:16px;border-left:3px solid #5ecdd1;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <div style="font-weight:700;font-size:14px;" id="tx-svc-detail-title">Service Detail</div>
+          <button class="btn btn-secondary" onclick="closeServiceDetail()">&#x2715; Close</button>
+        </div>
+
+        <div class="tabs" style="margin-bottom:12px;">
+          <div class="tab active" id="tx-svc-tab-src" onclick="switchSvcTab('src')">Source Architecture</div>
+          <div class="tab" id="tx-svc-tab-tgt" onclick="switchSvcTab('tgt')">Target Architecture</div>
+          <div class="tab" id="tx-svc-tab-api" onclick="switchSvcTab('api')">API Contracts</div>
+          <div class="tab" id="tx-svc-tab-ent" onclick="switchSvcTab('ent')">Entities &amp; Data</div>
+        </div>
+
+        <div id="tx-svc-src-pane">
+          <div id="tx-svc-src-stats" style="font-size:12px;color:var(--muted);margin-bottom:8px;"></div>
+          <div class="arch-zoom-bar">
+            <button class="btn btn-secondary" onclick="archZoom('svc-src', 1.25)" title="Zoom in">&#xff0b;</button>
+            <button class="btn btn-secondary" onclick="archZoom('svc-src', 0.8)" title="Zoom out">&#xff0d;</button>
+            <button class="btn btn-secondary" onclick="archZoom('svc-src', 0)" title="Reset zoom">&#x27f3;</button>
+            <button class="btn btn-secondary" onclick="archZoom('svc-src', -1)" title="Toggle fullscreen">&#x2922;</button>
+            <span id="arch-svc-src-zoom-label" class="arch-zoom-label">100%</span>
+          </div>
+          <div id="tx-svc-src-wrap" class="mermaid-wrap" style="overflow:auto;min-height:560px;max-height:78vh;"><pre id="tx-svc-src-mermaid" class="mermaid" style="background:none;"></pre></div>
+        </div>
+
+        <div id="tx-svc-tgt-pane" style="display:none;">
+          <div id="tx-svc-tgt-stats" style="font-size:12px;color:var(--muted);margin-bottom:8px;"></div>
+          <div class="arch-zoom-bar">
+            <button class="btn btn-secondary" onclick="archZoom('svc-tgt', 1.25)" title="Zoom in">&#xff0b;</button>
+            <button class="btn btn-secondary" onclick="archZoom('svc-tgt', 0.8)" title="Zoom out">&#xff0d;</button>
+            <button class="btn btn-secondary" onclick="archZoom('svc-tgt', 0)" title="Reset zoom">&#x27f3;</button>
+            <button class="btn btn-secondary" onclick="archZoom('svc-tgt', -1)" title="Toggle fullscreen">&#x2922;</button>
+            <span id="arch-svc-tgt-zoom-label" class="arch-zoom-label">100%</span>
+          </div>
+          <div id="tx-svc-tgt-wrap" class="mermaid-wrap" style="overflow:auto;min-height:560px;max-height:78vh;"><pre id="tx-svc-tgt-mermaid" class="mermaid" style="background:none;"></pre></div>
+        </div>
+
+        <div id="tx-svc-api-pane" style="display:none;">
+          <div style="max-height:540px;overflow:auto;">
+            <table>
+              <thead><tr><th>Method</th><th>Endpoint</th><th>Description</th><th>Source Program</th><th>CICS Verb</th></tr></thead>
+              <tbody id="tx-svc-api-body"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div id="tx-svc-ent-pane" style="display:none;">
+          <div style="max-height:540px;overflow:auto;">
+            <table>
+              <thead><tr><th>Entity</th><th>Source COBOL Record</th><th>Fields</th><th>Table Name</th><th>Key Type</th></tr></thead>
+              <tbody id="tx-svc-ent-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex;justify-content:flex-end;">
+        <button class="btn btn-primary" onclick="switchTxTab(3)">Proceed to Planning &rarr;</button>
       </div>
     </div>
   </div>
 
-  <!-- Hidden step progress bar kept for download compatibility -->
-  <div id="transform-progress-bar" style="display:none;"></div>
-  <div id="transform-step-panel" style="display:none;"></div>
-  <div id="transform-step-indicators" style="display:none;"></div>
+  <!-- ── Tab 3: Migration Plan ───────────────────────────────────────── -->
+  <div id="tx-pane-3" class="tx-pane" style="display:none;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <div style="font-size:13px;color:var(--muted);">Phased plan with accept / reject / edit on every step. Proceed to specs once 50% of steps are accepted.</div>
+      <button id="tx-plan-btn" class="btn btn-primary" onclick="loadTxPlan()">
+        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="9 11 12 14 22 4"/></svg>
+        Generate Plan
+      </button>
+    </div>
+
+    <div id="tx-plan-summary" class="card" style="display:none;margin-bottom:14px;">
+      <div style="display:flex;gap:24px;align-items:center;flex-wrap:wrap;font-size:13px;">
+        <div><span style="color:var(--muted);">Accepted: </span><span id="tx-plan-acc-count" style="color:#34d399;font-weight:700;">0</span></div>
+        <div><span style="color:var(--muted);">Rejected: </span><span id="tx-plan-rej-count" style="color:#f87171;font-weight:700;">0</span></div>
+        <div><span style="color:var(--muted);">Pending: </span><span id="tx-plan-pen-count" style="color:#fbbf24;font-weight:700;">0</span></div>
+        <div style="flex:1;"><div class="progress-bar" style="height:8px;"><div id="tx-plan-progress" class="progress-fill" style="width:0%;"></div></div></div>
+        <button id="tx-plan-next-btn" class="btn btn-primary" disabled onclick="switchTxTab(4)">Proceed to Specs &rarr;</button>
+      </div>
+    </div>
+
+    <div id="tx-plan-phases" style="display:flex;flex-direction:column;gap:14px;"></div>
+  </div>
+
+  <!-- ── Tab 4: Specifications & Code ────────────────────────────────── -->
+  <div id="tx-pane-4" class="tx-pane" style="display:none;">
+    <div class="tabs" style="margin-bottom:14px;">
+      <div class="tab active" id="tx-sub-tab-specs" onclick="switchTxSubTab('specs')">Specifications</div>
+      <div class="tab" id="tx-sub-tab-code" onclick="switchTxSubTab('code')">Code Generation</div>
+    </div>
+
+    <!-- Sub-tab A: Comprehensive Specifications -->
+    <div id="tx-sub-specs">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <div style="font-size:13px;color:var(--muted);">Ten parallel agents produce a real, comprehensive modernization specification document.</div>
+        <button id="tx-specs-btn" class="btn btn-primary" onclick="loadTxComprehensiveSpecs()">
+          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          Generate Comprehensive Specs
+        </button>
+      </div>
+      <div id="tx-specs-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;"></div>
+
+      <div id="tx-specs-actions" style="display:none;margin-bottom:16px;" class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+          <div>
+            <div style="font-weight:700;font-size:14px;color:#4ade80;">All Agents Complete</div>
+            <div id="tx-specs-totals" style="font-size:12px;color:var(--muted);margin-top:4px;"></div>
+          </div>
+          <div style="display:flex;gap:10px;">
+            <button class="btn btn-primary" onclick="downloadComprehensiveSpec('md')">Consolidate &amp; Download (.md)</button>
+            <button class="btn btn-secondary" onclick="downloadComprehensiveSpec('pdf')">Download PDF</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="tx-specs-preview" class="card" style="display:none;">
+        <div style="font-weight:700;font-size:14px;margin-bottom:10px;">Assembled Document Preview</div>
+        <div id="tx-specs-preview-body" style="font-size:12px;line-height:1.7;color:var(--muted);max-height:520px;overflow:auto;white-space:pre-wrap;"></div>
+      </div>
+    </div>
+
+    <!-- Sub-tab B: Code Generation -->
+    <div id="tx-sub-code" style="display:none;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <div style="font-size:13px;color:var(--muted);">Domain services derived from the plan. Generate Spring Boot scaffolding per service.</div>
+        <button class="btn btn-primary" onclick="generateAllServices()">
+          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          Generate All
+        </button>
+      </div>
+
+      <!-- Export toolbar -->
+      <div id="codegen-export-bar" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:16px;padding:12px;background:rgba(94,205,209,0.06);border:1px solid rgba(94,205,209,0.2);border-radius:8px;">
+        <div style="flex:1;min-width:200px;">
+          <div style="font-weight:600;font-size:13px;color:#5ecdd1;">Export Generated Artifacts</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:2px;">Download as ZIP archive or push directly to a GitHub repository</div>
+        </div>
+        <select id="codegen-export-service" style="background:var(--card);border:1px solid rgba(94,205,209,0.3);color:var(--fg);border-radius:6px;padding:6px 10px;font-size:12px;">
+          <option value="all">All Services</option>
+        </select>
+        <button class="btn btn-secondary" onclick="exportCodegenZip()">&#x2B07; Export ZIP</button>
+        <button class="btn btn-primary"   onclick="openGithubPushModal()">&#x2B06; Push to GitHub</button>
+      </div>
+
+      <div id="tx-code-services" style="display:flex;flex-direction:column;gap:12px;"></div>
+    </div>
+  </div>
+
 </section>
 
 <!-- ─── PLATFORM RECOMMENDER ─────────────────────────────────────────────── -->
@@ -1208,7 +1638,7 @@
         <button class="btn btn-secondary" onclick="cfgZoom(0.77)" style="font-size:12px;padding:3px 10px;" title="Zoom out">－</button>
         <button class="btn btn-secondary" onclick="cfgZoom(0)" style="font-size:12px;padding:3px 10px;" title="Reset zoom">⟳</button>
       </div>
-      <div id="cfg-container" class="mermaid-wrap" style="overflow:auto;max-height:600px;padding:16px;">
+      <div id="cfg-container" class="mermaid-wrap" style="overflow:auto;min-height:600px;max-height:82vh;padding:16px;">
         <span style="color:var(--muted);font-size:13px;">Select a program above to view its control flow graph.</span>
       </div>
     </div>
@@ -1554,6 +1984,30 @@
       </div>
     </div>
   </div>
+
+  <!-- Agent LLM Configuration -->
+  <div class="card" style="margin-top:20px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+      <div>
+        <div style="font-weight:700;font-size:14px;">Agent LLM Configuration</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:4px;">Choose the provider and model used by each modernization agent. Saved to <code style="font-size:11px;color:var(--ust-sky);">artifacts/agent_llms.json</code>.</div>
+      </div>
+      <div style="display:flex;gap:10px;">
+        <button class="btn btn-secondary" onclick="resetAgentLlms()">Reset to Defaults</button>
+        <button class="btn btn-primary" onclick="saveAgentLlms()">
+          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/></svg>
+          Save Agent LLMs
+        </button>
+      </div>
+    </div>
+    <div style="overflow:auto;">
+      <table>
+        <thead><tr><th style="width:24%;">Agent Role</th><th style="width:18%;">LLM Provider</th><th style="width:24%;">Model</th><th>Notes</th></tr></thead>
+        <tbody id="agent-llms-body"><tr><td colspan="4" style="color:var(--muted);">Loading agent table…</td></tr></tbody>
+      </table>
+    </div>
+    <div id="agent-llms-saved" style="color:#34d399;font-size:12px;margin-top:10px;display:none;">Agent LLM configuration saved.</div>
+  </div>
 </section>
 
 </main>
@@ -1597,12 +2051,14 @@ function navigate(page) {
   if (sec) { sec.style.display = ''; sec.classList.add('fade-in'); }
   const titles = {
     dashboard:'Dashboard', pipeline:'Run Pipeline', programs:'Program Explorer',
+    copybooks:'Copybook Browser',
     diagrams:'Diagrams', spec:'Spec Generator', emit:'Java Emitter',
     langgraph:'LangGraph', coverage:'Coverage Report', risks:'Risk Register'
   };
   document.getElementById('page-title').textContent = titles[page] || page;
   if (page === 'dashboard') loadDashboard();
   if (page === 'programs')  { loadPrograms(); loadProgramDropdowns(); }
+  if (page === 'copybooks') loadCopybooks();
   if (page === 'diagrams')  loadDiagram('call_graph', document.querySelector('.diag-btn'));
   if (page === 'spec')      loadProgramDropdowns();
   if (page === 'emit')      loadEmitDropdown();
@@ -2109,11 +2565,144 @@ function filterRiskTable() {
   ));
 }
 
+// ── Copybooks ─────────────────────────────────────────────────────────────────
+let _allCopybooks = [];
+async function loadCopybooks() {
+  try {
+    const rows = await apiFetch('/copybooks');
+    _allCopybooks = rows;
+    const countEl = document.getElementById('cpy-count');
+    if (countEl) countEl.textContent = rows.length + ' copybooks';
+    renderCopybookTable(rows);
+  } catch(e) {
+    const tb = document.getElementById('cpy-tbody');
+    if (tb) tb.innerHTML = '<tr><td colspan="6" style="color:var(--muted);">No copybook catalog — run the pipeline first.</td></tr>';
+  }
+}
+
+function filterCopybooks() {
+  const q = (document.getElementById('cpy-search')?.value || '').toLowerCase();
+  renderCopybookTable(_allCopybooks.filter(r => (r.name || '').toLowerCase().includes(q)));
+}
+
+function renderCopybookTable(rows) {
+  const tb = document.getElementById('cpy-tbody');
+  if (!tb) return;
+  const typeColor = { COPYBOOK: '#5ecdd1', BMS_COPYBOOK: '#fbbf24', STUB: '#94a3b8' };
+  tb.innerHTML = rows.map(r => {
+    const typ = r.source_type || 'COPYBOOK';
+    const col = typeColor[typ] || '#5ecdd1';
+    const statusBadge = r.parse_status === 'OK'
+      ? '<span style="color:#22c55e;font-size:11px;">✓ OK</span>'
+      : '<span style="color:#f87171;font-size:11px;">✗ ' + r.parse_status + '</span>';
+    return '<tr style="cursor:pointer;" onclick="openCopybookDetail(\'' + r.name + '\')">' +
+      '<td style="font-weight:600;color:#60c8fa;">' + r.name + '</td>' +
+      '<td><span style="color:' + col + ';font-size:11px;background:#004b5c;padding:2px 8px;border-radius:10px;">' + typ + '</span></td>' +
+      '<td>' + (r.data_item_count || 0) + '</td>' +
+      '<td>' + (r.consumer_count || 0) + '</td>' +
+      '<td>' + statusBadge + '</td>' +
+      '<td><button class="btn btn-secondary" style="font-size:11px;padding:3px 10px;" onclick="event.stopPropagation();openCopybookDetail(\'' + r.name + '\')">View</button></td>' +
+      '</tr>';
+  }).join('');
+  const countEl = document.getElementById('cpy-count');
+  if (countEl) countEl.textContent = rows.length + ' copybooks';
+}
+
+async function openCopybookDetail(name) {
+  const table = document.getElementById('cpy-table');
+  const listWrap = table ? table.closest('.card') : null;
+  const detail = document.getElementById('cpy-detail');
+  if (listWrap) listWrap.style.display = 'none';
+  if (detail) { detail.style.display = ''; detail.classList.add('fade-in'); }
+
+  const nameEl = document.getElementById('cpy-detail-name');
+  const typeEl = document.getElementById('cpy-detail-type');
+  if (nameEl) nameEl.textContent = name;
+
+  try {
+    const d = await apiFetch('/copybooks/' + encodeURIComponent(name));
+    if (typeEl) typeEl.textContent = (d.catalog && d.catalog.source_type) || 'COPYBOOK';
+    const itemCount = document.getElementById('cpy-item-count');
+    if (itemCount) itemCount.textContent = d.data_item_total || 0;
+    const consCount = document.getElementById('cpy-consumer-count');
+    if (consCount) consCount.textContent = (d.consumers || []).length;
+
+    const itemsTb = document.getElementById('cpy-items-tbody');
+    if (itemsTb) {
+      itemsTb.innerHTML = (d.data_item_sample || []).map(item =>
+        '<tr>' +
+        '<td style="color:#60c8fa;font-weight:600;">' + item.name + '</td>' +
+        '<td>' + item.level + '</td>' +
+        '<td style="font-family:monospace;">' + (item.pic || '') + '</td>' +
+        '<td style="color:#5ecdd1;">' + (item.canonical_kind || '') + '</td>' +
+        '</tr>'
+      ).join('');
+    }
+
+    const consTb = document.getElementById('cpy-consumers-tbody');
+    if (consTb) {
+      consTb.innerHTML = (d.consumers || []).map(c => {
+        let repl = '—';
+        try { const a = JSON.parse(c.replacing_json || '[]'); repl = (Array.isArray(a) && a.length) ? a.length + ' REPLACING' : '—'; } catch(e) {}
+        return '<tr>' +
+          '<td style="color:#5ecdd1;font-weight:600;">' + c.program_name + '</td>' +
+          '<td>' + (c.line || '—') + '</td>' +
+          '<td style="color:var(--muted);font-size:11px;">' + repl + '</td>' +
+          '</tr>';
+      }).join('');
+    }
+  } catch(e) {
+    const itemsTb = document.getElementById('cpy-items-tbody');
+    if (itemsTb) itemsTb.innerHTML = '<tr><td colspan="4" style="color:var(--muted);">Error loading detail</td></tr>';
+  }
+}
+
+function closeCpyDetail() {
+  const table = document.getElementById('cpy-table');
+  const listWrap = table ? table.closest('.card') : null;
+  const detail = document.getElementById('cpy-detail');
+  if (listWrap) listWrap.style.display = '';
+  if (detail) detail.style.display = 'none';
+}
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 checkHealth();
 setInterval(checkHealth, 30000);
 loadDashboard();
 } // end legacy fallback
 </script>
+
+<!-- GitHub Push Modal -->
+<div id="github-push-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.7);align-items:center;justify-content:center;">
+  <div class="card" style="width:480px;max-width:95vw;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <div style="font-weight:700;font-size:15px;">Push to GitHub</div>
+      <button class="btn btn-secondary" onclick="closeGithubPushModal()">&#x2715;</button>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:12px;">
+      <div>
+        <label style="font-size:12px;color:var(--muted);">GitHub Personal Access Token (repo scope)</label>
+        <input id="gh-token" type="password" placeholder="ghp_..." style="width:100%;margin-top:4px;box-sizing:border-box;" />
+      </div>
+      <div>
+        <label style="font-size:12px;color:var(--muted);">Repository Name</label>
+        <input id="gh-repo-name" type="text" placeholder="carddemo-service-name" style="width:100%;margin-top:4px;box-sizing:border-box;" />
+      </div>
+      <div>
+        <label style="font-size:12px;color:var(--muted);">Description (optional)</label>
+        <input id="gh-repo-desc" type="text" placeholder="Migrated from COBOL CardDemo" style="width:100%;margin-top:4px;box-sizing:border-box;" />
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <input id="gh-private" type="checkbox" checked />
+        <label style="font-size:12px;color:var(--muted);">Private repository</label>
+      </div>
+      <div id="gh-push-status" style="font-size:12px;color:var(--muted);min-height:20px;"></div>
+      <div style="display:flex;gap:10px;">
+        <button class="btn btn-primary"   style="flex:1;" onclick="pushToGithub()">Push</button>
+        <button class="btn btn-secondary" style="flex:1;" onclick="closeGithubPushModal()">Cancel</button>
+      </div>
+    </div>
+  </div>
+</div>
 </body>
 </html>

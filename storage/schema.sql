@@ -193,6 +193,19 @@ CREATE TABLE IF NOT EXISTS jcl_program_binding (
     program_uuid        TEXT REFERENCES nodes(uuid)
 );
 
+-- ── Layer 2: copybook catalog ─────────────────────────────────
+CREATE TABLE IF NOT EXISTS copybook_catalog (
+    name            TEXT PRIMARY KEY,   -- stem, e.g. CVACT01Y
+    source_file     TEXT NOT NULL,
+    source_type     TEXT DEFAULT 'COPYBOOK',  -- COPYBOOK|BMS_COPYBOOK|STUB
+    data_item_count INTEGER DEFAULT 0,
+    item_names_json TEXT,               -- JSON array of data item names defined here
+    parse_status    TEXT DEFAULT 'OK',
+    error_msg       TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_cc_name ON copybook_catalog(name);
+
 -- ── Layer 4: copybook usage ────────────────────────────────────
 CREATE TABLE IF NOT EXISTS copybook_use (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,

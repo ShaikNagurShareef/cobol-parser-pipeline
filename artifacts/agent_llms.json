@@ -1,0 +1,38 @@
+[
+  {
+    "role": "Spec Writer",
+    "provider": "OpenAI",
+    "model": "gpt-4o",
+    "notes": "Generates comprehensive specification documents"
+  },
+  {
+    "role": "Architect",
+    "provider": "OpenAI",
+    "model": "gpt-4o",
+    "notes": "Target architecture design + decomposition"
+  },
+  {
+    "role": "Code Generator",
+    "provider": "OpenAI",
+    "model": "gpt-4o",
+    "notes": "Java / Spring Boot service code emission"
+  },
+  {
+    "role": "Reviewer",
+    "provider": "OpenAI",
+    "model": "gpt-4o",
+    "notes": "Static review + grounding checks"
+  },
+  {
+    "role": "Test Writer",
+    "provider": "OpenAI",
+    "model": "gpt-4o-mini",
+    "notes": "JUnit + integration test scaffolding"
+  },
+  {
+    "role": "Migration Planner",
+    "provider": "OpenAI",
+    "model": "gpt-4o",
+    "notes": "Phased plan, risks, effort, dependencies"
+  }
+]

@@ -29,9 +29,17 @@ def init_db(db_path: str | pathlib.Path) -> None:
 
 
 def _migrate(con: sqlite3.Connection) -> None:
-    existing = {row[1] for row in con.execute("PRAGMA table_info(nodes)").fetchall()}
-    if "name" not in existing:
-        con.execute("ALTER TABLE nodes ADD COLUMN name TEXT")
+    _add_col_if_missing(con, "nodes", "name", "TEXT")
+    _add_col_if_missing(con, "copybook_catalog", "item_names_json", "TEXT")
+
+
+def _add_col_if_missing(con: sqlite3.Connection, table: str, column: str, col_type: str) -> None:
+    existing = {row[1] for row in con.execute(f"PRAGMA table_info({table})").fetchall()}
+    if column not in existing:
+        try:
+            con.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
+        except Exception:
+            pass
 
 
 def _resolve_path(db_path: str | pathlib.Path | None = None) -> pathlib.Path:

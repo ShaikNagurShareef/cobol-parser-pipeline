@@ -38,6 +38,7 @@ interface Stats {
   mq_calls: number;
   cics_verbs: number;
   copybook_refs: number;
+  active_run?: { id: string; started_at: string; completed_at: string; corpus: string } | null;
 }
 
 interface ASTNode {
@@ -147,6 +148,7 @@ function navigate(page: string): void {
 
   const titles: Record<string, string> = {
     dashboard: 'Dashboard', pipeline: 'Run Pipeline', programs: 'Program Explorer',
+    copybooks: 'Copybook Browser',
     visualizations: 'Visualizations', diagrams: 'Diagrams', spec: 'Spec Generator',
     transform: 'Forward Engineering — Transform', coverage: 'Coverage Report',
     risks: 'Risk Register', settings: 'Settings', layers: 'Layer Explorer',
@@ -163,6 +165,7 @@ function navigate(page: string): void {
   if (page === 'transform')      void loadTransformPage();
   if (page === 'platform')       void loadPlatformPage();
   if (page === 'pipeline')       { _replayPipelineLog(); void loadRunHistory(); }
+  if (page === 'copybooks')      void loadCopybooks();
   if (page === 'coverage')       void loadCoverage();
   if (page === 'risks')          void loadRisks();
   if (page === 'settings')       void loadSettings();
@@ -208,6 +211,21 @@ async function loadDashboard(): Promise<void> {
       const el = $<HTMLElement>(`s-${f}`);
       if (el) el.textContent = ((s as any)[f] ?? 0).toLocaleString();
     });
+
+    // Active run indicator
+    const activeRunEl = $<HTMLElement>('active-run-info');
+    if (activeRunEl) {
+      if (s.active_run) {
+        const ar = s.active_run;
+        const ts = ar.completed_at ? new Date(ar.completed_at * 1000).toLocaleString() : '—';
+        const corpus = ar.corpus ? ar.corpus.split('/').slice(-3).join('/') : '—';
+        activeRunEl.innerHTML = `<span style="color:#4ade80;font-size:11px;">● Active dataset:</span>
+          <span style="font-size:11px;color:var(--fg);margin-left:6px;">${corpus}</span>
+          <span style="font-size:11px;color:var(--muted);margin-left:10px;">Last run: ${ts}</span>`;
+      } else {
+        activeRunEl.innerHTML = `<span style="color:var(--muted);font-size:11px;">No pipeline run yet — click Run Pipeline to ingest a corpus.</span>`;
+      }
+    }
 
     // Render data sections immediately (before charts so a chart error doesn't block them)
     renderBirdsEyeView(s);
@@ -315,6 +333,8 @@ async function initKnowledgeGraph(): Promise<void> {
     }
 
     const groupColors: Record<string, string> = { program: '#5ecdd1', copybook: '#60c8fa', jcl: '#fbbf24' };
+    // font color inside each shape: dark on light fills (program/copybook/jcl), white on dark defaults
+    const groupFontColors: Record<string, string> = { program: '#001a28', copybook: '#001a28', jcl: '#001a28' };
     const visNodes = new vis.DataSet(data.nodes.map((n: any) => ({
       id: n.id,
       label: n.label.length > 14 ? n.label.slice(0, 14) + '…' : n.label,
@@ -322,17 +342,22 @@ async function initKnowledgeGraph(): Promise<void> {
       group: n.group,
       color: { background: groupColors[n.group] ?? '#7e8c9a', border: groupColors[n.group] ?? '#7e8c9a',
                highlight: { background: '#fff', border: groupColors[n.group] ?? '#5ecdd1' } },
-      font: { color: '#0a1628', size: 10, bold: true },
-      shape: n.group === 'program' ? 'ellipse' : n.group === 'jcl' ? 'box' : 'dot',
+      font: { color: groupFontColors[n.group] ?? '#ffffff', size: 10, bold: true },
+      // programs → ellipse, JCL → box (yellow rectangle), copybooks → box (cyan rectangle)
+      shape: n.group === 'program' ? 'ellipse' : 'box',
       size: n.group === 'program' ? 18 : 12,
     })));
 
+    const edgeColors: Record<string, string> = {
+      call: '#5ecdd1', tx: '#d876d6', nav: '#a78bfa', jcl: '#fbbf24', file: '#34d399', copy: '#60c8fa',
+    };
     const visEdges = new vis.DataSet(data.edges.map((e: any, i: number) => ({
-      id: i, from: e.from, to: e.to, title: e.label,
-      arrows: 'to', dashes: e.kind === 'copy',
-      color: { color: e.kind === 'call' ? '#5ecdd188' : e.kind === 'copy' ? '#60c8fa66' : '#fbbf2466', opacity: 0.8 },
-      width: e.kind === 'call' ? 1.5 : 1,
-      smooth: { type: 'curvedCW', roundness: 0.2 },
+      id: i, from: e.from, to: e.to, title: `${e.kind.toUpperCase()}: ${e.label}`,
+      arrows: { to: { enabled: true, scaleFactor: 0.6 } },
+      dashes: e.kind === 'copy' || e.kind === 'file',
+      color: { color: edgeColors[e.kind] ?? '#7e8c9a', highlight: '#ffffff', opacity: 0.85 },
+      width: e.kind === 'call' || e.kind === 'tx' ? 2 : 1.2,
+      smooth: { type: 'dynamic' },
     })));
 
     container.innerHTML = '';
@@ -391,35 +416,41 @@ async function explainKGNode(): Promise<void> {
 
   if (kind === 'program') {
     try {
-      // Fetch spec (business persona) via streaming for the program
+      explain.textContent = '⟳ Fetching program context…';
+      // Resolve the program's canonical UUID (handles duplicate-UUID from multi-run)
       const prog = await apiFetch<any>(`/programs/${encodeURIComponent(label)}`);
       const uuid = prog?.uuid ?? id;
-      const res = await fetch('/spec/generate', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ uuid, scope: 'program', personas: ['business'] }),
-        signal: sig(),
+      explain.textContent = '⟳ Generating explanation…';
+      const result = await apiFetch<{ spec: string }>('/generate-spec', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uuid, scope: 'program' }),
       });
-      if (!res.body) throw new Error('No body');
-      const reader = res.body.getReader(); const decoder = new TextDecoder(); let buf2 = '';
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buf2 += decoder.decode(value, { stream: true });
-        const parts = buf2.split('\n\n'); buf2 = parts.pop() ?? '';
-        for (const part of parts) {
-          if (!part.startsWith('data:')) continue;
-          try {
-            const ev = JSON.parse(part.slice(5));
-            if (ev.kind === 'token') explain.textContent += ev.token ?? '';
-            else if (ev.kind === 'result') { explain.textContent = ev.text ?? explain.textContent; }
-          } catch { /* skip */ }
-        }
-      }
+      explain.textContent = result?.spec ?? '(no explanation returned)';
     } catch(e) {
-      if (!isAbort(e)) explain.textContent = _kgSelectedNode.title + '\n\n(LLM explanation unavailable — configure API key in Settings)';
+      if (!isAbort(e)) {
+        explain.textContent = (_kgSelectedNode.title ?? label) +
+          '\n\n⚠ LLM explanation unavailable — configure an API key in Settings.';
+      }
+    }
+  } else if (kind === 'copybook') {
+    try {
+      explain.textContent = '⟳ Fetching copybook context…';
+      const result = await apiFetch<{ spec: string }>('/explain-copybook', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: label }),
+      });
+      explain.textContent = result?.spec ?? '(no explanation returned)';
+    } catch(e) {
+      if (!isAbort(e)) {
+        explain.textContent = (_kgSelectedNode.title ?? label) +
+          '\n\n⚠ LLM explanation unavailable — configure an API key in Settings.';
+      }
     }
   } else {
-    explain.textContent = (_kgSelectedNode.title ?? label) + '\n\nFor deep explanation, run the pipeline and configure an LLM API key in Settings.';
+    // JCL nodes: show metadata summary
+    explain.textContent = _kgSelectedNode.title ?? label;
   }
 
   if (btn) { btn.disabled = false; btn.textContent = '✦ Explain with AI'; }
@@ -481,6 +512,7 @@ async function openProgram(name: string): Promise<void> {
     renderCallGraph(d.call_graph);
     renderBizRules(d.business_rules);
     renderFileIO(d.file_io);
+    renderProgCopybooks(d.copybooks ?? []);
     renderProgRisks(d.risks);
     loadProgSource(name);
   } catch(e) {
@@ -562,6 +594,24 @@ function renderFileIO(rows: any[]): void {
     <td><span class="badge ${r.operation === 'WRITE' || r.operation === 'REWRITE' ? 'badge-amber' : 'badge-sky'}">${r.operation}</span></td>
     <td style="font-size:12px;color:var(--muted);">${r.record_copybook ?? ''}</td></tr>`
   ).join('') || '<tr><td colspan="3" style="color:var(--muted);">No file I/O</td></tr>';
+}
+
+function renderProgCopybooks(rows: any[]): void {
+  const el = $<HTMLElement>('prog-cpy-tbody');
+  if (!el) return;
+  const typeColor: Record<string, string> = { COPYBOOK: '#5ecdd1', BMS_COPYBOOK: '#fbbf24', STUB: '#94a3b8' };
+  el.innerHTML = (rows ?? []).map((r: any) => {
+    const typ = r.source_type ?? 'COPYBOOK';
+    const col = typeColor[typ] ?? '#5ecdd1';
+    const replParsed = (() => { try { const a = JSON.parse(r.replacing_json ?? '[]'); return Array.isArray(a) && a.length ? `${a.length} pair(s)` : '—'; } catch { return '—'; } })();
+    return `<tr>
+      <td style="color:#60c8fa;font-weight:600;cursor:pointer;" onclick="navigate('copybooks');setTimeout(()=>openCopybookDetail('${r.copybook_name}'),200)">${r.copybook_name}</td>
+      <td><span style="color:${col};font-size:11px;">${typ}</span></td>
+      <td>${r.data_item_count ?? '—'}</td>
+      <td>${r.line ?? '—'}</td>
+      <td style="font-size:11px;color:var(--muted);">${replParsed}</td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="5" style="color:var(--muted);">No COPY statements</td></tr>';
 }
 
 function renderProgRisks(rows: any[]): void {
@@ -1002,6 +1052,11 @@ async function loadTransformPage(): Promise<void> {
     const el = $<HTMLElement>('tx-port-risks-high');
     if (el) el.textContent = String(cov.risk_summary?.HIGH ?? 0);
   } catch { /* ignore */ }
+  // Initial render of the agent cards and codegen panel so tabs feel populated
+  try { renderSpecAgentCards(); } catch { /* not on page */ }
+  try { renderCodegenServicesPanel(); } catch { /* not on page */ }
+  // Default to tab 1 on each fresh load
+  switchTxTab(1);
 }
 
 async function startTransform(): Promise<void> {
@@ -1558,6 +1613,96 @@ async function cancelPipeline(): Promise<void> {
   }
 }
 
+// ── Copybooks ─────────────────────────────────────────────────────────────────
+let _allCopybooks: Record<string, unknown>[] = [];
+
+async function loadCopybooks(): Promise<void> {
+  try {
+    const rows = await apiFetch<Record<string, unknown>[]>('/copybooks');
+    _allCopybooks = rows;
+    const countEl = $<HTMLElement>('cpy-count');
+    if (countEl) countEl.textContent = `${rows.length} copybooks`;
+    renderCopybookTable(rows);
+  } catch (e) {
+    const tb = $<HTMLElement>('cpy-tbody');
+    if (tb) tb.innerHTML = `<tr><td colspan="6" style="color:var(--muted);">No copybook catalog — run the pipeline first.</td></tr>`;
+  }
+}
+
+function filterCopybooks(): void {
+  const q = ($<HTMLInputElement>('cpy-search')?.value ?? '').toLowerCase();
+  renderCopybookTable(_allCopybooks.filter(r => String(r['name'] ?? '').toLowerCase().includes(q)));
+}
+
+function renderCopybookTable(rows: Record<string, unknown>[]): void {
+  const tb = $<HTMLElement>('cpy-tbody');
+  if (!tb) return;
+  const typeColor: Record<string, string> = { COPYBOOK: '#5ecdd1', BMS_COPYBOOK: '#fbbf24', STUB: '#94a3b8' };
+  tb.innerHTML = rows.map(r => {
+    const typ = String(r['source_type'] ?? 'COPYBOOK');
+    const col = typeColor[typ] ?? '#5ecdd1';
+    const statusBadge = r['parse_status'] === 'OK'
+      ? '<span style="color:#22c55e;font-size:11px;">✓ OK</span>'
+      : `<span style="color:#f87171;font-size:11px;">✗ ${r['parse_status']}</span>`;
+    return `<tr style="cursor:pointer;" onclick="openCopybookDetail('${r['name']}')">
+      <td style="font-weight:600;color:#60c8fa;">${r['name']}</td>
+      <td><span style="color:${col};font-size:11px;background:#004b5c;padding:2px 8px;border-radius:10px;">${typ}</span></td>
+      <td>${r['data_item_count'] ?? 0}</td>
+      <td>${r['consumer_count'] ?? 0}</td>
+      <td>${statusBadge}</td>
+      <td><button class="btn btn-secondary" style="font-size:11px;padding:3px 10px;" onclick="event.stopPropagation();openCopybookDetail('${r['name']}')">View</button></td>
+    </tr>`;
+  }).join('');
+  const countEl = $<HTMLElement>('cpy-count');
+  if (countEl) countEl.textContent = `${rows.length} copybooks`;
+}
+
+async function openCopybookDetail(name: string): Promise<void> {
+  const listWrap = $<HTMLElement>('cpy-table')?.parentElement;
+  const detail = $<HTMLElement>('cpy-detail');
+  if (listWrap) listWrap.style.display = 'none';
+  if (detail) { detail.style.display = ''; detail.classList.add('fade-in'); }
+
+  const nameEl = $<HTMLElement>('cpy-detail-name');
+  const typeEl = $<HTMLElement>('cpy-detail-type');
+  if (nameEl) nameEl.textContent = name;
+
+  try {
+    const d = await apiFetch<{ catalog: Record<string, unknown>; consumers: Record<string, unknown>[]; data_item_sample: Record<string, unknown>[]; data_item_total: number }>(`/copybooks/${encodeURIComponent(name)}`);
+
+    if (typeEl) typeEl.textContent = String(d.catalog?.['source_type'] ?? 'COPYBOOK');
+    const itemCount = $<HTMLElement>('cpy-item-count');
+    if (itemCount) itemCount.textContent = String(d.data_item_total ?? 0);
+    const consCount = $<HTMLElement>('cpy-consumer-count');
+    if (consCount) consCount.textContent = String(d.consumers?.length ?? 0);
+
+    const itemsTb = $<HTMLElement>('cpy-items-tbody');
+    if (itemsTb) {
+      itemsTb.innerHTML = (d.data_item_sample ?? []).map((item: Record<string, unknown>) =>
+        `<tr><td style="color:#60c8fa;font-weight:600;">${item['name']}</td><td>${item['level']}</td><td style="font-family:monospace;">${item['pic'] ?? ''}</td><td style="color:#5ecdd1;">${item['canonical_kind'] ?? ''}</td></tr>`
+      ).join('');
+    }
+
+    const consTb = $<HTMLElement>('cpy-consumers-tbody');
+    if (consTb) {
+      consTb.innerHTML = (d.consumers ?? []).map((c: Record<string, unknown>) => {
+        const repl = (() => { try { const a = JSON.parse(String(c['replacing_json'] ?? '[]')); return Array.isArray(a) && a.length ? `${a.length} REPLACING` : '—'; } catch { return '—'; } })();
+        return `<tr><td style="color:#5ecdd1;font-weight:600;">${c['program_name']}</td><td>${c['line'] ?? '—'}</td><td style="color:var(--muted);font-size:11px;">${repl}</td></tr>`;
+      }).join('');
+    }
+  } catch (e) {
+    const itemsTb = $<HTMLElement>('cpy-items-tbody');
+    if (itemsTb) itemsTb.innerHTML = `<tr><td colspan="4" style="color:var(--muted);">Error loading detail</td></tr>`;
+  }
+}
+
+function closeCpyDetail(): void {
+  const listWrap = $<HTMLElement>('cpy-table')?.parentElement;
+  const detail = $<HTMLElement>('cpy-detail');
+  if (listWrap) listWrap.style.display = '';
+  if (detail) detail.style.display = 'none';
+}
+
 // ── Coverage ──────────────────────────────────────────────────────────────────
 async function loadCoverage(): Promise<void> {
   try {
@@ -1707,6 +1852,8 @@ async function loadSettings(): Promise<void> {
   } catch(e) {
     if (!isAbort(e)) console.warn('Failed to load settings:', e);
   }
+  // Agent LLM config card
+  await loadAgentLlms();
 }
 
 async function loadModelsForProvider(provider: string, currentModel: string): Promise<void> {
@@ -1758,6 +1905,1157 @@ async function saveSettings(): Promise<void> {
     await loadSettings();
   } catch(e) {
     if (!isAbort(e)) showToast('Save failed: ' + (e as Error).message, 'error');
+  }
+}
+
+// ── Agent LLM Configuration (per-agent provider/model) ────────────────────────
+interface AgentLlmRow { role: string; provider: string; model: string; notes?: string; }
+
+// Fallback model lists (used until API responds)
+const _PROVIDER_MODELS_FALLBACK: Record<string, string[]> = {
+  OpenAI:    ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-3.5-turbo'],
+  Anthropic: ['claude-opus-4-7', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001', 'claude-opus-4-5', 'claude-sonnet-4-5'],
+  Gemini:    ['gemini-2.5-pro', 'gemini-2.0-flash', 'gemini-1.5-pro', 'gemini-1.5-flash'],
+};
+
+// Runtime cache populated from /models?provider=X
+const _providerModelsCache: Record<string, string[]> = {};
+
+async function fetchModelsForProvider(provider: string): Promise<string[]> {
+  const key = provider.toLowerCase();
+  if (_providerModelsCache[key]) return _providerModelsCache[key];
+  try {
+    const data = await apiFetch<{ models: string[] }>(`/models?provider=${encodeURIComponent(key)}`);
+    const models = data.models ?? [];
+    if (models.length) _providerModelsCache[key] = models;
+    return models.length ? models : (_PROVIDER_MODELS_FALLBACK[provider] ?? []);
+  } catch {
+    return _PROVIDER_MODELS_FALLBACK[provider] ?? [];
+  }
+}
+
+function _cachedModels(provider: string): string[] {
+  return _providerModelsCache[provider.toLowerCase()] ?? _PROVIDER_MODELS_FALLBACK[provider] ?? [];
+}
+
+let _agentLlms: AgentLlmRow[] = [];
+
+async function loadAgentLlms(): Promise<void> {
+  const tbody = $<HTMLElement>('agent-llms-body');
+  if (!tbody) return;
+  try {
+    const data = await apiFetch<{ agents: AgentLlmRow[] }>('/settings/agent-llms');
+    _agentLlms = data.agents ?? [];
+    // Prefetch models for all distinct providers used in the config
+    const providers = [...new Set(_agentLlms.map(a => a.provider))];
+    await Promise.all(providers.map(p => fetchModelsForProvider(p)));
+    renderAgentLlmsTable();
+  } catch (e) {
+    if (!isAbort(e)) tbody.innerHTML = `<tr><td colspan="4" style="color:var(--muted);">Failed to load: ${(e as Error).message}</td></tr>`;
+  }
+}
+
+function renderAgentLlmsTable(): void {
+  const tbody = $<HTMLElement>('agent-llms-body');
+  if (!tbody) return;
+  if (!_agentLlms.length) {
+    tbody.innerHTML = `<tr><td colspan="4" style="color:var(--muted);">No agents configured.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = _agentLlms.map((row, i) => {
+    const providers = ['OpenAI', 'Anthropic', 'Gemini'];
+    const providerOpts = providers.map(p => `<option value="${p}" ${p === row.provider ? 'selected' : ''}>${p}</option>`).join('');
+    const models = _cachedModels(row.provider);
+    const isCustom = models.length > 0 && !models.includes(row.model);
+    const modelOpts = models.map(m => `<option value="${m}" ${m === row.model ? 'selected' : ''}>${m}</option>`).join('');
+    return `
+      <tr>
+        <td style="font-weight:600;color:var(--text);">${escapeHtml(row.role)}</td>
+        <td>
+          <select onchange="onAgentLlmProviderChange(${i}, this.value)" style="width:100%;">
+            ${providerOpts}
+          </select>
+        </td>
+        <td>
+          <select onchange="onAgentLlmModelChange(${i}, this.value)" style="width:100%;" id="agent-llm-model-${i}">
+            ${modelOpts}
+            <option value="__custom" ${isCustom ? 'selected' : ''}>Custom…</option>
+          </select>
+          <input type="text" value="${escapeHtml(row.model)}" oninput="onAgentLlmModelChange(${i}, this.value)" style="width:100%;margin-top:6px;font-size:12px;" placeholder="Custom model id" />
+        </td>
+        <td style="color:var(--muted);font-size:12px;">${escapeHtml(row.notes ?? '')}</td>
+      </tr>
+    `;
+  }).join('');
+}
+
+async function onAgentLlmProviderChange(idx: number, provider: string): Promise<void> {
+  if (!_agentLlms[idx]) return;
+  _agentLlms[idx].provider = provider;
+  // Fetch models from API for the newly selected provider
+  const models = await fetchModelsForProvider(provider);
+  if (models.length) _agentLlms[idx].model = models[0];
+  renderAgentLlmsTable();
+}
+
+function onAgentLlmModelChange(idx: number, model: string): void {
+  if (!_agentLlms[idx]) return;
+  if (model === '__custom') return; // wait for input box
+  _agentLlms[idx].model = model;
+}
+
+async function saveAgentLlms(): Promise<void> {
+  try {
+    await apiFetch('/settings/agent-llms', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agents: _agentLlms }),
+    });
+    const saved = $<HTMLElement>('agent-llms-saved');
+    if (saved) { saved.style.display = ''; setTimeout(() => { saved.style.display = 'none'; }, 3000); }
+    showToast('Agent LLMs saved');
+  } catch (e) {
+    if (!isAbort(e)) showToast('Save failed: ' + (e as Error).message, 'error');
+  }
+}
+
+async function resetAgentLlms(): Promise<void> {
+  _agentLlms = [];
+  await loadAgentLlms();
+}
+
+// escapeHtml() is defined later in this file — reuse it.
+
+// ── Transform 4-Phase Workflow ────────────────────────────────────────────────
+
+let _txCurrentTab = 1;
+let _txCurrentSubTab: 'specs' | 'code' = 'specs';
+let _txArchData: any = null;
+let _txPlanState: Record<string, { status: 'pending' | 'accepted' | 'rejected'; description: string }> = {};
+let _txPlanTotalSteps = 0;
+let _txSpecsSections: Record<string, { label: string; content: string; words: number }> = {};
+let _txServicesFromArch: { name: string; programs: string[] }[] = [];
+
+// Architecture diagram zoom + level state
+type ArchPanel = 'source' | 'target' | 'svc-src' | 'svc-tgt';
+const _archZoomLevel: Record<ArchPanel, number> = {
+  'source': 1, 'target': 1, 'svc-src': 1, 'svc-tgt': 1,
+};
+const _archLevel: Record<'source' | 'target', 'hl' | 'll'> = { source: 'hl', target: 'hl' };
+let _txCurrentSvcTab: 'src' | 'tgt' | 'api' | 'ent' = 'src';
+let _txCurrentServiceName = '';
+
+function switchTxTab(tabId: number): void {
+  _txCurrentTab = tabId;
+  for (let i = 1; i <= 4; i++) {
+    const tab = $<HTMLElement>(`tx-tab-${i}`);
+    const pane = $<HTMLElement>(`tx-pane-${i}`);
+    if (tab) tab.classList.toggle('active', i === tabId);
+    if (pane) pane.style.display = i === tabId ? '' : 'none';
+  }
+  // Re-render mermaid when switching to tab 2 if data is already loaded
+  if (tabId === 2 && _txArchData) {
+    try { void (window as any).mermaid?.run({ querySelector: '#tx-pane-2 .mermaid' }); } catch { /* ignore */ }
+  }
+}
+
+function switchTxSubTab(sub: 'specs' | 'code'): void {
+  _txCurrentSubTab = sub;
+  const specsTab = $<HTMLElement>('tx-sub-tab-specs');
+  const codeTab  = $<HTMLElement>('tx-sub-tab-code');
+  const specsPane = $<HTMLElement>('tx-sub-specs');
+  const codePane  = $<HTMLElement>('tx-sub-code');
+  if (specsTab) specsTab.classList.toggle('active', sub === 'specs');
+  if (codeTab)  codeTab.classList.toggle('active',  sub === 'code');
+  if (specsPane) specsPane.style.display = sub === 'specs' ? '' : 'none';
+  if (codePane)  codePane.style.display  = sub === 'code'  ? '' : 'none';
+}
+
+// ── Architecture Mapping (Tab 2) ──────────────────────────────────────────────
+async function loadTxArchitecture(): Promise<void> {
+  const fw     = ($<HTMLSelectElement>('transform-framework'))?.value ?? 'Spring Boot';
+  const cloud  = ($<HTMLSelectElement>('transform-cloud'))?.value ?? 'AWS';
+  const decomp = ($<HTMLSelectElement>('transform-decomposition'))?.value ?? 'Strangler Fig';
+  const btn = $<HTMLButtonElement>('tx-arch-btn');
+  if (btn) btn.disabled = true;
+  try {
+    const data = await apiFetch<any>('/transform/source-architecture', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ framework: fw, cloud, decomposition: decomp }),
+    });
+    _txArchData = data;
+    _txServicesFromArch = data.services ?? [];
+
+    const out = $<HTMLElement>('tx-arch-output');
+    if (out) out.style.display = '';
+
+    const ss = data.source_stats ?? {};
+    const ts = data.target_stats ?? {};
+    const sourceStats = $<HTMLElement>('tx-arch-source-stats');
+    if (sourceStats) sourceStats.innerHTML = `
+      <strong>${ss.programs ?? 0}</strong> programs &middot;
+      <strong>${ss.jcl_jobs ?? 0}</strong> JCL jobs &middot;
+      <strong>${ss.cics_verbs ?? 0}</strong> CICS verbs &middot;
+      <strong>${ss.file_io ?? 0}</strong> files &middot;
+      <strong>${ss.copybooks ?? 0}</strong> copybooks
+    `;
+    const targetStats = $<HTMLElement>('tx-arch-target-stats');
+    if (targetStats) targetStats.innerHTML = `
+      <strong>${ts.services ?? 0}</strong> microservices &middot;
+      <strong>${escapeHtml(ts.framework ?? '')}</strong> on <strong>${escapeHtml(ts.cloud ?? '')}</strong> &middot;
+      Pattern: <strong>${escapeHtml(ts.pattern ?? '')}</strong>
+    `;
+
+    const sm = $<HTMLElement>('tx-arch-source-mermaid');
+    const tm = $<HTMLElement>('tx-arch-target-mermaid');
+    if (sm) sm.textContent = data.source_mermaid ?? '';
+    if (tm) tm.textContent = data.target_mermaid ?? '';
+    // Re-render mermaid
+    try {
+      // Reset the rendered flag so mermaid re-processes
+      if (sm) sm.removeAttribute('data-processed');
+      if (tm) tm.removeAttribute('data-processed');
+      await (window as any).mermaid?.run({ querySelector: '#tx-pane-2 .mermaid' });
+    } catch { /* ignore */ }
+
+    // Mapping table
+    const tbody = $<HTMLElement>('tx-arch-mapping-body');
+    if (tbody) {
+      type MappingRow = {
+        source: string; target: string; strategy: string; effort: string; risk: string;
+        business_description?: string;
+        acceptance_criteria?: string[];
+        cobol_to_oo_reasoning?: string;
+      };
+      const rows = (data.mapping ?? []) as MappingRow[];
+      tbody.innerHTML = rows.map((r, idx) => {
+        const riskColor = r.risk === 'High' ? '#f87171' : r.risk === 'Medium' ? '#fbbf24' : '#34d399';
+        const riskBadge = r.risk === 'High' ? 'badge-red' : r.risk === 'Medium' ? 'badge-amber' : 'badge-green';
+        const targetSafe = escapeHtml(r.target);
+        const targetAttr = (r.target ?? '').replace(/'/g, "\\'");
+        const hasDetail  = !!(r.business_description || r.acceptance_criteria?.length || r.cobol_to_oo_reasoning);
+        const criteriaHtml = (r.acceptance_criteria ?? []).map(c => `<li style="margin-bottom:4px;">${escapeHtml(c)}</li>`).join('');
+        const detailHtml = hasDetail ? `
+          <tr id="mapping-detail-${idx}" style="display:none;">
+            <td colspan="6" style="padding:12px 16px;background:rgba(94,205,209,0.04);border-top:1px solid rgba(94,205,209,0.12);">
+              ${r.business_description ? `
+              <div style="margin-bottom:10px;">
+                <div style="font-size:11px;font-weight:700;color:#5ecdd1;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">Business Description</div>
+                <div style="font-size:12px;color:var(--fg);line-height:1.6;">${escapeHtml(r.business_description)}</div>
+              </div>` : ''}
+              ${criteriaHtml ? `
+              <div style="margin-bottom:10px;">
+                <div style="font-size:11px;font-weight:700;color:#5ecdd1;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">Acceptance Criteria</div>
+                <ul style="margin:0;padding-left:18px;font-size:12px;color:var(--fg);line-height:1.6;">${criteriaHtml}</ul>
+              </div>` : ''}
+              ${r.cobol_to_oo_reasoning ? `
+              <div>
+                <div style="font-size:11px;font-weight:700;color:#5ecdd1;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">COBOL&#x2192;Java OO Reasoning</div>
+                <div style="font-size:12px;color:var(--fg);line-height:1.6;font-family:'JetBrains Mono',monospace;">${escapeHtml(r.cobol_to_oo_reasoning)}</div>
+              </div>` : ''}
+            </td>
+          </tr>` : '';
+        return `
+          <tr>
+            <td style="font-family:'JetBrains Mono',monospace;font-size:12px;">${escapeHtml(r.source)}</td>
+            <td onclick="loadServiceDetail('${targetAttr}')" style="cursor:pointer;" title="Click to drill into ${targetSafe}">
+              <span class="badge badge-teal" style="border-bottom:1px dashed #5ecdd1;">${targetSafe}</span>
+              <span style="font-size:10px;color:#5ecdd1;margin-left:4px;">&#x21f2;</span>
+            </td>
+            <td style="color:var(--muted);font-size:12px;">${escapeHtml(r.strategy)}</td>
+            <td><span class="badge badge-blue">${escapeHtml(r.effort)}</span></td>
+            <td><span class="badge ${riskBadge}" style="color:${riskColor};">${escapeHtml(r.risk)}</span></td>
+            <td style="text-align:center;">
+              ${hasDetail ? `<button onclick="toggleMappingDetail(${idx})" title="Toggle details"
+                style="background:none;border:none;cursor:pointer;color:#5ecdd1;font-size:14px;padding:2px 6px;"
+                id="mapping-expand-btn-${idx}">&#x25B6;</button>` : ''}
+            </td>
+          </tr>
+          ${detailHtml}`;
+      }).join('') || `<tr><td colspan="6" style="color:var(--muted);">No mapping rows.</td></tr>`;
+    }
+    // Reset zoom/level state on each fresh load
+    _archZoomLevel.source = 1;
+    _archZoomLevel.target = 1;
+    _archLevel.source = 'hl';
+    _archLevel.target = 'hl';
+    _updateArchLevelButtons('source');
+    _updateArchLevelButtons('target');
+    _updateArchZoomLabel('source');
+    _updateArchZoomLabel('target');
+    showToast('Architecture mapped');
+  } catch (e) {
+    if (!isAbort(e)) showToast('Architecture analysis failed: ' + (e as Error).message, 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+// ── Architecture Diagram Zoom / Level / Drill-down ────────────────────────────
+
+function _archWrapId(panel: ArchPanel): string {
+  return panel === 'source' ? 'tx-arch-source-wrap'
+       : panel === 'target' ? 'tx-arch-target-wrap'
+       : panel === 'svc-src' ? 'tx-svc-src-wrap'
+       : 'tx-svc-tgt-wrap';
+}
+
+function _archCardId(panel: ArchPanel): string {
+  return panel === 'source' ? 'tx-arch-source-card'
+       : panel === 'target' ? 'tx-arch-target-card'
+       : 'tx-service-detail-panel';
+}
+
+function _archZoomLabelId(panel: ArchPanel): string {
+  return panel === 'source' ? 'arch-source-zoom-label'
+       : panel === 'target' ? 'arch-target-zoom-label'
+       : panel === 'svc-src' ? 'arch-svc-src-zoom-label'
+       : 'arch-svc-tgt-zoom-label';
+}
+
+function _updateArchZoomLabel(panel: ArchPanel): void {
+  const lab = $<HTMLElement>(_archZoomLabelId(panel));
+  if (lab) lab.textContent = `${Math.round(_archZoomLevel[panel] * 100)}%`;
+}
+
+function _applyArchZoom(panel: ArchPanel): void {
+  const wrap = $<HTMLElement>(_archWrapId(panel));
+  if (!wrap) return;
+  const scale = _archZoomLevel[panel];
+  const target: HTMLElement | null = wrap.querySelector('svg') ?? wrap.querySelector('.mermaid');
+  if (target) {
+    target.style.transform = `scale(${scale})`;
+    target.style.transformOrigin = 'top left';
+    // Grow (or shrink) the wrapper so the scaled content is never clipped.
+    // We read the element's natural (un-scaled) bounding height, then multiply.
+    const naturalH = target.getBoundingClientRect().height / scale;
+    const needed   = Math.round(naturalH * scale) + 40; // +40 padding
+    wrap.style.minHeight = `${Math.max(needed, 400)}px`;
+    // Remove max-height cap when zoomed in so the container can expand freely.
+    wrap.style.maxHeight = scale > 1.05 ? 'none' : '';
+  }
+  _updateArchZoomLabel(panel);
+}
+
+function archZoom(panel: ArchPanel, factor: number): void {
+  if (factor === -1) {
+    // Toggle fullscreen on the parent card
+    const card = $<HTMLElement>(_archCardId(panel));
+    if (card) card.classList.toggle('arch-fullscreen');
+    return;
+  }
+  if (factor === 0) {
+    _archZoomLevel[panel] = 1;
+  } else {
+    _archZoomLevel[panel] = Math.min(5, Math.max(0.2, _archZoomLevel[panel] * factor));
+  }
+  _applyArchZoom(panel);
+}
+
+function _updateArchLevelButtons(panel: 'source' | 'target'): void {
+  const lvl = _archLevel[panel];
+  const hlBtn = $<HTMLElement>(`arch-${panel}-hl-btn`);
+  const llBtn = $<HTMLElement>(`arch-${panel}-ll-btn`);
+  if (hlBtn) {
+    hlBtn.classList.toggle('btn-primary', lvl === 'hl');
+    hlBtn.classList.toggle('btn-secondary', lvl !== 'hl');
+  }
+  if (llBtn) {
+    llBtn.classList.toggle('btn-primary', lvl === 'll');
+    llBtn.classList.toggle('btn-secondary', lvl !== 'll');
+  }
+}
+
+async function archSetLevel(panel: 'source' | 'target', level: 'hl' | 'll'): Promise<void> {
+  if (_archLevel[panel] === level) return;
+  _archLevel[panel] = level;
+  _updateArchLevelButtons(panel);
+  const preId = panel === 'source' ? 'tx-arch-source-mermaid' : 'tx-arch-target-mermaid';
+  const pre = $<HTMLElement>(preId);
+  if (!pre) return;
+
+  // Try to use cached LL mermaid first
+  const cachedHl = panel === 'source' ? _txArchData?.source_mermaid : _txArchData?.target_mermaid;
+  const cachedLl = panel === 'source' ? _txArchData?.source_ll_mermaid : _txArchData?.target_ll_mermaid;
+  let mmd = level === 'hl' ? cachedHl : cachedLl;
+
+  // If LL not cached, fetch from API
+  if (level === 'll' && !mmd) {
+    pre.textContent = 'graph TD\n  Loading["Loading low-level view…"]';
+    pre.removeAttribute('data-processed');
+    try {
+      await (window as any).mermaid?.run({ querySelector: `#${preId}` });
+    } catch { /* ignore */ }
+    try {
+      const fw     = ($<HTMLSelectElement>('transform-framework'))?.value ?? 'Spring Boot';
+      const cloud  = ($<HTMLSelectElement>('transform-cloud'))?.value ?? 'AWS';
+      const decomp = ($<HTMLSelectElement>('transform-decomposition'))?.value ?? 'Strangler Fig';
+      const data = await apiFetch<any>('/transform/source-architecture', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ framework: fw, cloud, decomposition: decomp, level: 'll' }),
+      });
+      if (_txArchData) {
+        _txArchData.source_ll_mermaid = data.source_ll_mermaid ?? _txArchData.source_ll_mermaid;
+        _txArchData.target_ll_mermaid = data.target_ll_mermaid ?? _txArchData.target_ll_mermaid;
+      }
+      mmd = panel === 'source' ? data.source_ll_mermaid : data.target_ll_mermaid;
+    } catch (e) {
+      if (!isAbort(e)) showToast('Low-level view failed: ' + (e as Error).message, 'error');
+      _archLevel[panel] = 'hl';
+      _updateArchLevelButtons(panel);
+      return;
+    }
+  }
+  pre.textContent = mmd ?? `graph TD\n  Empty["No ${level === 'hl' ? 'high-level' : 'low-level'} data"]`;
+  pre.removeAttribute('data-processed');
+  try {
+    await (window as any).mermaid?.run({ querySelector: `#${preId}` });
+  } catch { /* ignore */ }
+  _archZoomLevel[panel] = 1;
+  _applyArchZoom(panel);
+}
+
+function switchSvcTab(tab: 'src' | 'tgt' | 'api' | 'ent'): void {
+  _txCurrentSvcTab = tab;
+  const map: Record<string, string> = { src: 'tx-svc-src-pane', tgt: 'tx-svc-tgt-pane', api: 'tx-svc-api-pane', ent: 'tx-svc-ent-pane' };
+  for (const k of Object.keys(map)) {
+    const pane = $<HTMLElement>(map[k]);
+    if (pane) pane.style.display = k === tab ? '' : 'none';
+    const tabEl = $<HTMLElement>(`tx-svc-tab-${k}`);
+    if (tabEl) tabEl.classList.toggle('active', k === tab);
+  }
+  if (tab === 'src') {
+    _applyArchZoom('svc-src');
+  }
+  if (tab === 'tgt') {
+    // The target pane was hidden when loadServiceDetail ran, so Mermaid rendered
+    // at zero size. Force a clean re-render now that the pane is visible.
+    const tgtM = $<HTMLElement>('tx-svc-tgt-mermaid');
+    if (tgtM) {
+      // If Mermaid already replaced content with SVG, restore the source text first.
+      const existingSvg = tgtM.querySelector('svg');
+      const storedSrc   = (tgtM as any)._mmdSource as string | undefined;
+      if (existingSvg && storedSrc) {
+        tgtM.textContent = storedSrc;
+        tgtM.removeAttribute('data-processed');
+      } else if (!existingSvg) {
+        tgtM.removeAttribute('data-processed');
+      }
+      void (window as any).mermaid?.run({ querySelector: '#tx-svc-tgt-mermaid' })
+        .then(() => _applyArchZoom('svc-tgt'))
+        .catch(() => { /* ignore render errors */ });
+    } else {
+      _applyArchZoom('svc-tgt');
+    }
+  }
+}
+
+function closeServiceDetail(): void {
+  const panel = $<HTMLElement>('tx-service-detail-panel');
+  if (panel) {
+    panel.style.display = 'none';
+    panel.classList.remove('arch-fullscreen');
+  }
+  _txCurrentServiceName = '';
+}
+
+async function loadServiceDetail(svcName: string): Promise<void> {
+  if (!svcName) return;
+  _txCurrentServiceName = svcName;
+  const panel = $<HTMLElement>('tx-service-detail-panel');
+  const title = $<HTMLElement>('tx-svc-detail-title');
+  if (title) title.textContent = `${svcName} — Detailed Architecture`;
+  if (panel) {
+    panel.style.display = '';
+    try { panel.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch { /* ignore */ }
+  }
+  // Default to src tab
+  switchSvcTab('src');
+
+  const srcM = $<HTMLElement>('tx-svc-src-mermaid');
+  const tgtM = $<HTMLElement>('tx-svc-tgt-mermaid');
+  if (srcM) { srcM.textContent = 'graph TD\n  Loading["Loading source detail…"]'; srcM.removeAttribute('data-processed'); }
+  if (tgtM) { tgtM.textContent = 'graph TD\n  Loading["Loading target detail…"]'; tgtM.removeAttribute('data-processed'); }
+  try {
+    await (window as any).mermaid?.run({ querySelector: '#tx-service-detail-panel .mermaid' });
+  } catch { /* ignore */ }
+
+  const fw    = ($<HTMLSelectElement>('transform-framework'))?.value ?? 'Spring Boot';
+  const cloud = ($<HTMLSelectElement>('transform-cloud'))?.value ?? 'AWS';
+
+  try {
+    const data = await apiFetch<any>('/transform/service-detail', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ service: svcName, framework: fw, cloud }),
+    });
+
+    const srcSrc = data.source_ll_mermaid ?? 'graph TD\n  Empty["No source data"]';
+    const tgtSrc = data.target_ll_mermaid ?? 'flowchart LR\n  Empty["No target data"]';
+    if (srcM) { srcM.textContent = srcSrc; srcM.removeAttribute('data-processed'); }
+    if (tgtM) {
+      tgtM.textContent = tgtSrc;
+      (tgtM as any)._mmdSource = tgtSrc;  // store so tab-switch can restore after SVG replace
+      tgtM.removeAttribute('data-processed');
+    }
+
+    const srcStats = $<HTMLElement>('tx-svc-src-stats');
+    if (srcStats) {
+      const np = (data.source_programs ?? []).length;
+      srcStats.innerHTML = `<strong>${np}</strong> programs &middot; <strong>${data.total_paragraphs ?? 0}</strong> paragraphs &middot; <strong>${data.total_statements ?? 0}</strong> statements &middot; <strong>${data.total_cc ?? 0}</strong> total cyclomatic complexity`;
+    }
+    const tgtStats = $<HTMLElement>('tx-svc-tgt-stats');
+    if (tgtStats) {
+      const apis = (data.api_contracts ?? []).length;
+      const ents = (data.entities ?? []).length;
+      tgtStats.innerHTML = `<strong>${apis}</strong> REST endpoints &middot; <strong>${ents}</strong> entities &middot; ${escapeHtml(fw)} on ${escapeHtml(cloud)}`;
+    }
+
+    const apiBody = $<HTMLElement>('tx-svc-api-body');
+    if (apiBody) {
+      const contracts = (data.api_contracts ?? []) as Array<{ method: string; path: string; description: string; source_program?: string; cics_verb?: string }>;
+      apiBody.innerHTML = contracts.map(c => {
+        const badge = c.method === 'GET' ? 'badge-green'
+                    : c.method === 'POST' ? 'badge-teal'
+                    : c.method === 'PUT' ? 'badge-amber'
+                    : c.method === 'DELETE' ? 'badge-red'
+                    : 'badge-blue';
+        return `<tr>
+          <td><span class="badge ${badge}">${escapeHtml(c.method ?? '')}</span></td>
+          <td style="font-family:'JetBrains Mono',monospace;font-size:12px;">${escapeHtml(c.path ?? '')}</td>
+          <td style="font-size:12px;">${escapeHtml(c.description ?? '')}</td>
+          <td style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);">${escapeHtml(c.source_program ?? '')}</td>
+          <td style="font-size:11px;color:var(--muted);">${escapeHtml(c.cics_verb ?? '')}</td>
+        </tr>`;
+      }).join('') || '<tr><td colspan="5" style="color:var(--muted);">No API contracts.</td></tr>';
+    }
+
+    const entBody = $<HTMLElement>('tx-svc-ent-body');
+    if (entBody) {
+      const entities = (data.entities ?? []) as Array<{ name: string; source_record?: string; field_count?: number; table_name?: string; key_type?: string }>;
+      entBody.innerHTML = entities.map(e =>
+        `<tr>
+          <td style="font-weight:600;">${escapeHtml(e.name ?? '')}</td>
+          <td style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);">${escapeHtml(e.source_record ?? '')}</td>
+          <td>${e.field_count ?? 0}</td>
+          <td style="font-family:'JetBrains Mono',monospace;font-size:12px;">${escapeHtml(e.table_name ?? '')}</td>
+          <td><span class="badge badge-blue">${escapeHtml(e.key_type ?? '')}</span></td>
+        </tr>`
+      ).join('') || '<tr><td colspan="5" style="color:var(--muted);">No entities.</td></tr>';
+    }
+
+    // Only render the visible (source) pane — target is hidden and would render at 0px.
+    // switchSvcTab('tgt') will trigger its render when the user opens that tab.
+    try {
+      await (window as any).mermaid?.run({ querySelector: '#tx-svc-src-mermaid' });
+    } catch { /* ignore */ }
+    _archZoomLevel['svc-src'] = 1;
+    _archZoomLevel['svc-tgt'] = 1;
+    _updateArchZoomLabel('svc-src');
+    _updateArchZoomLabel('svc-tgt');
+    _applyArchZoom('svc-src');
+  } catch (e) {
+    if (!isAbort(e)) showToast('Service detail failed: ' + (e as Error).message, 'error');
+  }
+}
+
+// ── Migration Plan (Tab 3) ────────────────────────────────────────────────────
+async function loadTxPlan(): Promise<void> {
+  const fw     = ($<HTMLSelectElement>('transform-framework'))?.value ?? 'Spring Boot';
+  const cloud  = ($<HTMLSelectElement>('transform-cloud'))?.value ?? 'AWS';
+  const decomp = ($<HTMLSelectElement>('transform-decomposition'))?.value ?? 'Strangler Fig';
+  const btn = $<HTMLButtonElement>('tx-plan-btn');
+  if (btn) btn.disabled = true;
+
+  const container = $<HTMLElement>('tx-plan-phases');
+  const summary   = $<HTMLElement>('tx-plan-summary');
+  if (container) container.innerHTML = '<div style="color:var(--muted);font-size:13px;">Generating plan…</div>';
+  if (summary) summary.style.display = '';
+  _txPlanState = {};
+  _txPlanTotalSteps = 0;
+
+  try {
+    const res = await fetch('/transform/migration-plan', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ framework: fw, cloud, decomposition: decomp }),
+      signal: sig(),
+    });
+    if (!res.body) throw new Error('No body');
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    if (container) container.innerHTML = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const parts = buf.split('\n\n'); buf = parts.pop() ?? '';
+      for (const p of parts) {
+        if (!p.startsWith('data:')) continue;
+        try {
+          const ev = JSON.parse(p.slice(5));
+          if (ev.kind === 'phase' && container) {
+            renderPlanPhase(ev, container);
+            for (const st of (ev.steps ?? [])) {
+              _txPlanState[st.id] = { status: 'pending', description: st.description };
+              _txPlanTotalSteps += 1;
+            }
+            updatePlanSummary();
+          } else if (ev.kind === 'done') {
+            showToast(`Plan ready — ${ev.total_steps} steps across ${ev.total_phases} phases`);
+          } else if (ev.kind === 'error') {
+            showToast(ev.msg ?? 'Plan error', 'error');
+          }
+        } catch { /* skip */ }
+      }
+    }
+  } catch (e) {
+    if (!isAbort(e)) showToast('Plan failed: ' + (e as Error).message, 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function renderPlanPhase(phase: any, container: HTMLElement): void {
+  const card = document.createElement('div');
+  card.className = 'card';
+  const stepsHtml = (phase.steps ?? []).map((st: any) => {
+    const riskBadge = st.risk === 'High' ? 'badge-red' : st.risk === 'Medium' ? 'badge-amber' : 'badge-green';
+    return `
+      <div class="card-sm" id="plan-step-${st.id}" data-step="${st.id}">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">
+          <div style="flex:1;">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
+              <strong style="font-size:13px;">${escapeHtml(st.title)}</strong>
+              <span class="badge badge-blue">${escapeHtml(st.effort)}</span>
+              <span class="badge ${riskBadge}">${escapeHtml(st.risk)}</span>
+              <span class="badge badge-gray">${escapeHtml(st.owner)}</span>
+            </div>
+            <div id="plan-step-desc-${st.id}" style="font-size:12px;color:var(--muted);line-height:1.6;">${escapeHtml(st.description)}</div>
+            <div id="plan-step-edit-${st.id}" style="display:none;margin-top:8px;">
+              <textarea id="plan-step-textarea-${st.id}" style="width:100%;min-height:80px;font-size:12px;">${escapeHtml(st.description)}</textarea>
+              <div style="display:flex;gap:8px;margin-top:6px;">
+                <button class="btn btn-success" style="padding:4px 12px;font-size:12px;" onclick="saveEditPlanStep('${st.id}')">Save</button>
+                <button class="btn btn-secondary" style="padding:4px 12px;font-size:12px;" onclick="cancelEditPlanStep('${st.id}')">Cancel</button>
+              </div>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0;">
+            <button class="btn btn-success" style="padding:4px 10px;font-size:12px;" onclick="acceptPlanStep('${st.id}')" title="Accept">Accept</button>
+            <button class="btn btn-danger"  style="padding:4px 10px;font-size:12px;" onclick="rejectPlanStep('${st.id}')" title="Reject">Reject</button>
+            <button class="btn btn-secondary" style="padding:4px 10px;font-size:12px;" onclick="editPlanStep('${st.id}')" title="Edit">Edit</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+  card.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <div>
+        <div style="font-weight:700;font-size:15px;color:#5ecdd1;">${escapeHtml(phase.name)}</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:2px;">${escapeHtml(phase.duration ?? '')} &middot; Lead: ${escapeHtml(phase.owner ?? '')}</div>
+      </div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:10px;">${stepsHtml}</div>
+  `;
+  container.appendChild(card);
+}
+
+function acceptPlanStep(id: string): void {
+  const st = _txPlanState[id]; if (!st) return;
+  st.status = 'accepted';
+  applyPlanStepStyle(id);
+  updatePlanSummary();
+}
+
+function rejectPlanStep(id: string): void {
+  const st = _txPlanState[id]; if (!st) return;
+  st.status = 'rejected';
+  applyPlanStepStyle(id);
+  updatePlanSummary();
+}
+
+function editPlanStep(id: string): void {
+  const desc = $<HTMLElement>(`plan-step-desc-${id}`);
+  const edit = $<HTMLElement>(`plan-step-edit-${id}`);
+  if (desc) desc.style.display = 'none';
+  if (edit) edit.style.display = '';
+}
+
+function cancelEditPlanStep(id: string): void {
+  const desc = $<HTMLElement>(`plan-step-desc-${id}`);
+  const edit = $<HTMLElement>(`plan-step-edit-${id}`);
+  if (desc) desc.style.display = '';
+  if (edit) edit.style.display = 'none';
+}
+
+function saveEditPlanStep(id: string): void {
+  const ta = $<HTMLTextAreaElement>(`plan-step-textarea-${id}`);
+  const desc = $<HTMLElement>(`plan-step-desc-${id}`);
+  const edit = $<HTMLElement>(`plan-step-edit-${id}`);
+  if (!ta || !desc) return;
+  const newText = ta.value.trim();
+  if (_txPlanState[id]) _txPlanState[id].description = newText;
+  desc.textContent = newText;
+  desc.style.display = '';
+  if (edit) edit.style.display = 'none';
+  showToast('Step updated');
+}
+
+function applyPlanStepStyle(id: string): void {
+  const el = $<HTMLElement>(`plan-step-${id}`);
+  const desc = $<HTMLElement>(`plan-step-desc-${id}`);
+  const st = _txPlanState[id]; if (!el || !st) return;
+  el.style.borderColor = st.status === 'accepted' ? '#34d399' : st.status === 'rejected' ? '#f87171' : 'var(--border)';
+  el.style.background  = st.status === 'accepted' ? 'rgba(52,211,153,.08)' : st.status === 'rejected' ? 'rgba(248,113,113,.08)' : 'var(--surface2)';
+  if (desc) {
+    desc.style.textDecoration = st.status === 'rejected' ? 'line-through' : 'none';
+    desc.style.opacity = st.status === 'rejected' ? '0.6' : '1';
+  }
+}
+
+function updatePlanSummary(): void {
+  let acc = 0, rej = 0, pen = 0;
+  for (const id of Object.keys(_txPlanState)) {
+    const s = _txPlanState[id].status;
+    if (s === 'accepted') acc++;
+    else if (s === 'rejected') rej++;
+    else pen++;
+  }
+  const total = _txPlanTotalSteps || 1;
+  const accEl = $<HTMLElement>('tx-plan-acc-count'); if (accEl) accEl.textContent = String(acc);
+  const rejEl = $<HTMLElement>('tx-plan-rej-count'); if (rejEl) rejEl.textContent = String(rej);
+  const penEl = $<HTMLElement>('tx-plan-pen-count'); if (penEl) penEl.textContent = String(pen);
+  const fill = $<HTMLElement>('tx-plan-progress'); if (fill) fill.style.width = ((acc / total) * 100) + '%';
+  const next = $<HTMLButtonElement>('tx-plan-next-btn');
+  if (next) next.disabled = (acc / total) < 0.5;
+}
+
+// ── Comprehensive Specs (Tab 4 — sub-tab A) ───────────────────────────────────
+const _TX_AGENT_DEFS: { id: string; label: string; icon: string }[] = [
+  { id: 'executive',        label: 'Executive Summary',         icon: 'EXEC' },
+  { id: 'business_analyst', label: 'Current State Analysis',    icon: 'BA' },
+  { id: 'system_architect', label: 'Target Architecture Design', icon: 'ARC' },
+  { id: 'tech_lead',        label: 'Technical Specification',   icon: 'TECH' },
+  { id: 'data_architect',   label: 'Data Architecture & Migration', icon: 'DATA' },
+  { id: 'api_designer',     label: 'API Design & Contracts',    icon: 'API' },
+  { id: 'security_analyst', label: 'Security Architecture',     icon: 'SEC' },
+  { id: 'devops_engineer',  label: 'Infrastructure & DevOps',   icon: 'OPS' },
+  { id: 'qa_lead',          label: 'Test Strategy & QA Plan',   icon: 'QA' },
+  { id: 'pm',               label: 'Project Plan & Risk Register', icon: 'PM' },
+];
+
+function renderSpecAgentCards(): void {
+  const grid = $<HTMLElement>('tx-specs-grid');
+  if (!grid) return;
+  grid.innerHTML = _TX_AGENT_DEFS.map(a => `
+    <div class="card-sm" id="spec-agent-${a.id}" style="border-left:3px solid var(--border);">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <div style="width:42px;height:42px;border-radius:8px;background:var(--surface);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:11px;color:#5ecdd1;border:1px solid var(--border);">${a.icon}</div>
+        <div style="flex:1;">
+          <div style="font-weight:600;font-size:13px;">${escapeHtml(a.label)}</div>
+          <div id="spec-agent-status-${a.id}" style="font-size:11px;color:var(--muted);margin-top:2px;">Queued</div>
+        </div>
+        <div id="spec-agent-words-${a.id}" style="font-size:11px;color:var(--muted);">—</div>
+      </div>
+      <div class="progress-bar" style="margin-top:10px;height:5px;"><div id="spec-agent-progress-${a.id}" class="progress-fill" style="width:0%;"></div></div>
+    </div>
+  `).join('');
+}
+
+async function loadTxComprehensiveSpecs(): Promise<void> {
+  const fw     = ($<HTMLSelectElement>('transform-framework'))?.value ?? 'Spring Boot';
+  const cloud  = ($<HTMLSelectElement>('transform-cloud'))?.value ?? 'AWS';
+  const decomp = ($<HTMLSelectElement>('transform-decomposition'))?.value ?? 'Strangler Fig';
+
+  const btn = $<HTMLButtonElement>('tx-specs-btn');
+  if (btn) btn.disabled = true;
+  _txSpecsSections = {};
+  renderSpecAgentCards();
+  const actions = $<HTMLElement>('tx-specs-actions');
+  const preview = $<HTMLElement>('tx-specs-preview');
+  if (actions) actions.style.display = 'none';
+  if (preview) preview.style.display = 'none';
+
+  try {
+    const res = await fetch('/transform/specs/comprehensive', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ framework: fw, cloud, decomposition: decomp }),
+      signal: sig(),
+    });
+    if (!res.body) throw new Error('No body');
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const parts = buf.split('\n\n'); buf = parts.pop() ?? '';
+      for (const p of parts) {
+        if (!p.startsWith('data:')) continue;
+        try {
+          const ev = JSON.parse(p.slice(5));
+          handleSpecEvent(ev);
+        } catch { /* skip */ }
+      }
+    }
+  } catch (e) {
+    if (!isAbort(e)) showToast('Spec generation failed: ' + (e as Error).message, 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function handleSpecEvent(ev: any): void {
+  if (ev.kind === 'agent_start') {
+    const card   = $<HTMLElement>(`spec-agent-${ev.agent}`);
+    const status = $<HTMLElement>(`spec-agent-status-${ev.agent}`);
+    const prog   = $<HTMLElement>(`spec-agent-progress-${ev.agent}`);
+    if (card) card.style.borderLeftColor = '#fbbf24';
+    if (status) { status.textContent = 'Running…'; status.style.color = '#fbbf24'; }
+    if (prog) prog.style.width = '15%';
+    _txSpecsSections[ev.agent] = { label: ev.label, content: '', words: 0 };
+  } else if (ev.kind === 'agent_chunk') {
+    if (!_txSpecsSections[ev.agent]) _txSpecsSections[ev.agent] = { label: ev.agent, content: '', words: 0 };
+    _txSpecsSections[ev.agent].content += ev.chunk;
+    const prog = $<HTMLElement>(`spec-agent-progress-${ev.agent}`);
+    if (prog) {
+      const cur = parseFloat(prog.style.width || '15') || 15;
+      prog.style.width = Math.min(90, cur + 3) + '%';
+    }
+  } else if (ev.kind === 'agent_done') {
+    const card   = $<HTMLElement>(`spec-agent-${ev.agent}`);
+    const status = $<HTMLElement>(`spec-agent-status-${ev.agent}`);
+    const words  = $<HTMLElement>(`spec-agent-words-${ev.agent}`);
+    const prog   = $<HTMLElement>(`spec-agent-progress-${ev.agent}`);
+    if (card) card.style.borderLeftColor = '#34d399';
+    if (status) { status.textContent = 'Done'; status.style.color = '#34d399'; }
+    if (words) words.textContent = `${(ev.word_count ?? 0).toLocaleString()} words`;
+    if (prog) prog.style.width = '100%';
+    if (_txSpecsSections[ev.agent]) _txSpecsSections[ev.agent].words = ev.word_count ?? 0;
+  } else if (ev.kind === 'all_done') {
+    const actions = $<HTMLElement>('tx-specs-actions');
+    const preview = $<HTMLElement>('tx-specs-preview');
+    const totals  = $<HTMLElement>('tx-specs-totals');
+    if (actions) actions.style.display = '';
+    if (preview) preview.style.display = '';
+    if (totals) totals.textContent = `${(ev.sections ?? 0)} sections · ${(ev.total_words ?? 0).toLocaleString()} words total`;
+    const assembled = assembleComprehensiveSpec();
+    (window as any)._comprehensiveSpecMd = assembled;
+    const body = $<HTMLElement>('tx-specs-preview-body');
+    if (body) body.textContent = assembled.slice(0, 12000) + (assembled.length > 12000 ? '\n\n…(truncated for preview)' : '');
+    showToast('All specs generated');
+  } else if (ev.kind === 'error') {
+    showToast(ev.msg ?? 'Spec error', 'error');
+  }
+}
+
+function assembleComprehensiveSpec(): string {
+  const fw    = ($<HTMLSelectElement>('transform-framework'))?.value ?? 'Spring Boot';
+  const cloud = ($<HTMLSelectElement>('transform-cloud'))?.value ?? 'AWS';
+  const decomp = ($<HTMLSelectElement>('transform-decomposition'))?.value ?? 'Strangler Fig';
+  const header = `# Comprehensive Modernization Specification\n\n` +
+                 `**Framework:** ${fw}  |  **Cloud:** ${cloud}  |  **Pattern:** ${decomp}\n\n` +
+                 `_Generated by ten parallel modernization agents. Each section is grounded in the artifact pipeline output._\n\n---\n\n`;
+  const parts: string[] = [header];
+  for (const def of _TX_AGENT_DEFS) {
+    const s = _txSpecsSections[def.id];
+    if (!s) continue;
+    parts.push(s.content.trim());
+    parts.push('\n\n---\n\n');
+  }
+  return parts.join('');
+}
+
+async function downloadComprehensiveSpec(format: 'md' | 'pdf'): Promise<void> {
+  const md = (window as any)._comprehensiveSpecMd ?? assembleComprehensiveSpec();
+  if (!md) { showToast('No spec yet — generate first', 'error'); return; }
+  const fw    = ($<HTMLSelectElement>('transform-framework'))?.value ?? 'spec';
+  const cloud = ($<HTMLSelectElement>('transform-cloud'))?.value ?? 'cloud';
+  const title = `Modernization_Spec_${fw.replace(/ /g, '_')}_${cloud}`;
+  if (format === 'md') {
+    const blob = new Blob([md], { type: 'text/markdown' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = `${title}.md`; a.click();
+    return;
+  }
+  try {
+    const resp = await fetch('/specs/export/pdf', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: md, title }),
+    });
+    if (!resp.ok) { showToast('PDF export failed', 'error'); return; }
+    const blob = await resp.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = `${title}.pdf`; a.click();
+  } catch (e) {
+    if (!isAbort(e)) showToast('PDF failed: ' + (e as Error).message, 'error');
+  }
+}
+
+// ── Code Generation (Tab 4 — sub-tab B) ───────────────────────────────────────
+function renderCodegenServicesPanel(): void {
+  const container = $<HTMLElement>('tx-code-services');
+  if (!container) return;
+  const services = _txServicesFromArch.length ? _txServicesFromArch : [
+    { name: 'AuthService',        programs: [] },
+    { name: 'UserService',        programs: [] },
+    { name: 'AccountService',     programs: [] },
+    { name: 'CardService',        programs: [] },
+    { name: 'TransactionService', programs: [] },
+    { name: 'ReportingService',   programs: [] },
+  ];
+  container.innerHTML = services.map(svc => {
+    const progsTxt = svc.programs.length ? svc.programs.join(', ') : '(no programs mapped)';
+    return `
+      <div class="card" id="codegen-svc-${escapeHtml(svc.name)}" data-svc="${escapeHtml(svc.name)}">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+          <div style="flex:1;min-width:240px;">
+            <div style="font-weight:700;font-size:14px;color:#5ecdd1;">${escapeHtml(svc.name)}</div>
+            <div style="font-size:12px;color:var(--muted);margin-top:4px;">Source programs: ${escapeHtml(progsTxt)}</div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <span id="codegen-status-${escapeHtml(svc.name)}" class="badge badge-gray">Idle</span>
+            <button class="btn btn-secondary" onclick="toggleCodegenOutput('${escapeHtml(svc.name)}')">Toggle Output</button>
+            <button class="btn btn-primary"   onclick="generateServiceCode('${escapeHtml(svc.name)}')">Generate</button>
+          </div>
+        </div>
+        <div id="codegen-output-${escapeHtml(svc.name)}" style="display:none;margin-top:12px;">
+          <div id="codegen-files-${escapeHtml(svc.name)}" style="display:flex;flex-direction:column;gap:10px;"></div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  // Also populate the export service selector
+  const exportSel = $<HTMLSelectElement>('codegen-export-service');
+  if (exportSel) {
+    exportSel.innerHTML = '<option value="all">All Services</option>' +
+      services.map(s => `<option value="${escapeHtml(s.name)}">${escapeHtml(s.name)}</option>`).join('');
+  }
+}
+
+function toggleCodegenOutput(svc: string): void {
+  const out = $<HTMLElement>(`codegen-output-${svc}`);
+  if (out) out.style.display = out.style.display === 'none' ? '' : 'none';
+}
+
+async function generateServiceCode(svcName: string): Promise<void> {
+  const fw    = ($<HTMLSelectElement>('transform-framework'))?.value ?? 'Spring Boot';
+  const cloud = ($<HTMLSelectElement>('transform-cloud'))?.value ?? 'AWS';
+  const programs = (_txServicesFromArch.find(s => s.name === svcName)?.programs) ?? [];
+  const status = $<HTMLElement>(`codegen-status-${svcName}`);
+  const out    = $<HTMLElement>(`codegen-output-${svcName}`);
+  const files  = $<HTMLElement>(`codegen-files-${svcName}`);
+  if (status) { status.textContent = 'Generating…'; status.className = 'badge badge-amber'; }
+  if (out)   out.style.display = '';
+  if (files) files.innerHTML = '';
+
+  const fileBlocks: Record<string, HTMLElement> = {};
+
+  try {
+    const res = await fetch('/transform/codegen', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ service: svcName, programs, framework: fw, cloud }),
+      signal: sig(),
+    });
+    if (!res.body) throw new Error('No body');
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const parts = buf.split('\n\n'); buf = parts.pop() ?? '';
+      for (const p of parts) {
+        if (!p.startsWith('data:')) continue;
+        try {
+          const ev = JSON.parse(p.slice(5));
+          if (ev.kind === 'file_start' && files) {
+            const block = document.createElement('div');
+            block.className = 'card-sm';
+            block.innerHTML = `
+              <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#5ecdd1;margin-bottom:6px;">${escapeHtml(ev.path)}</div>
+              <pre style="margin:0;background:#080e10;padding:10px;border-radius:6px;font-size:11px;line-height:1.5;max-height:340px;overflow:auto;"><code id="codegen-file-content-${cssId(ev.path)}"></code></pre>
+            `;
+            files.appendChild(block);
+            const codeEl = block.querySelector<HTMLElement>(`#codegen-file-content-${cssId(ev.path)}`);
+            if (codeEl) fileBlocks[ev.path] = codeEl;
+          } else if (ev.kind === 'file_chunk') {
+            const codeEl = fileBlocks[ev.path];
+            if (codeEl) codeEl.textContent = (codeEl.textContent ?? '') + (ev.chunk ?? '');
+          } else if (ev.kind === 'file_done') {
+            /* nothing extra */
+          } else if (ev.kind === 'service_done') {
+            if (status) { status.textContent = `Done · ${ev.files} files`; status.className = 'badge badge-green'; }
+            showToast(`${svcName} generated (${ev.files} files)`);
+          }
+        } catch { /* skip */ }
+      }
+    }
+  } catch (e) {
+    if (!isAbort(e)) {
+      if (status) { status.textContent = 'Failed'; status.className = 'badge badge-red'; }
+      showToast(`${svcName} failed: ${(e as Error).message}`, 'error');
+    }
+  }
+}
+
+function cssId(s: string): string {
+  return s.replace(/[^a-zA-Z0-9]/g, '_');
+}
+
+async function generateAllServices(): Promise<void> {
+  if (!_txServicesFromArch.length) {
+    // Render defaults so the user has something to generate
+    renderCodegenServicesPanel();
+  }
+  const services = _txServicesFromArch.length ? _txServicesFromArch : [
+    { name: 'AuthService', programs: [] },
+    { name: 'UserService', programs: [] },
+    { name: 'AccountService', programs: [] },
+    { name: 'CardService', programs: [] },
+    { name: 'TransactionService', programs: [] },
+    { name: 'ReportingService', programs: [] },
+  ];
+  await Promise.all(services.map(s => generateServiceCode(s.name)));
+}
+
+// ── Migration Mapping — expand/collapse detail rows ───────────────────────────
+function toggleMappingDetail(idx: number): void {
+  const row = document.getElementById(`mapping-detail-${idx}`);
+  const btn = document.getElementById(`mapping-expand-btn-${idx}`);
+  if (!row) return;
+  const open = row.style.display === 'none' || row.style.display === '';
+  // 'none' = hidden, '' = hidden (initial), anything else = visible
+  const isHidden = row.style.display === 'none' || row.style.display === '';
+  row.style.display = isHidden ? 'table-row' : 'none';
+  if (btn) btn.innerHTML = isHidden ? '&#x25BC;' : '&#x25B6;';
+}
+
+// ── Codegen Export & GitHub Push ──────────────────────────────────────────────
+async function exportCodegenZip(): Promise<void> {
+  const select  = $<HTMLSelectElement>('codegen-export-service');
+  const svcName = select?.value ?? 'all';
+  const fw      = ($<HTMLSelectElement>('transform-framework'))?.value ?? 'Spring Boot';
+  const cloud   = ($<HTMLSelectElement>('transform-cloud'))?.value ?? 'AWS';
+
+  const defaultServices = [
+    { name: 'AuthService', programs: [] as string[] },
+    { name: 'UserService', programs: [] as string[] },
+    { name: 'AccountService', programs: [] as string[] },
+    { name: 'CardService', programs: [] as string[] },
+    { name: 'TransactionService', programs: [] as string[] },
+    { name: 'ReportingService', programs: [] as string[] },
+  ];
+  const allSvcs = _txServicesFromArch.length ? _txServicesFromArch : defaultServices;
+
+  const toExport = svcName === 'all'
+    ? allSvcs
+    : [allSvcs.find(s => s.name === svcName) ?? { name: svcName, programs: [] as string[] }];
+
+  showToast('Preparing ZIP archive…');
+  for (const svc of toExport) {
+    try {
+      const res = await fetch('/transform/codegen/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ service: svc.name, programs: svc.programs, framework: fw, cloud }),
+        signal: sig(),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const blob = await res.blob();
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href = url;
+      a.download = `${svc.name}-export.zip`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      if (!isAbort(e)) showToast(`Export failed for ${svc.name}: ${(e as Error).message}`, 'error');
+    }
+  }
+  showToast('ZIP download started');
+}
+
+function openGithubPushModal(): void {
+  const modal = document.getElementById('github-push-modal');
+  if (modal) modal.style.display = 'flex';
+  const select   = $<HTMLSelectElement>('codegen-export-service');
+  const svc      = select?.value ?? 'all';
+  const repoInput = $<HTMLInputElement>('gh-repo-name');
+  if (repoInput && !repoInput.value) {
+    repoInput.value = `carddemo-${svc === 'all' ? 'migration' : svc.toLowerCase()}`;
+  }
+  const statusEl = document.getElementById('gh-push-status');
+  if (statusEl) statusEl.innerHTML = '';
+}
+
+function closeGithubPushModal(): void {
+  const modal = document.getElementById('github-push-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+async function pushToGithub(): Promise<void> {
+  const token     = ($<HTMLInputElement>('gh-token'))?.value?.trim() ?? '';
+  const repoName  = ($<HTMLInputElement>('gh-repo-name'))?.value?.trim() ?? '';
+  const repoDesc  = ($<HTMLInputElement>('gh-repo-desc'))?.value?.trim() ?? '';
+  const isPrivate = ($<HTMLInputElement>('gh-private'))?.checked ?? true;
+  const statusEl  = document.getElementById('gh-push-status');
+  const select    = $<HTMLSelectElement>('codegen-export-service');
+  const svcName   = select?.value ?? 'all';
+  const fw        = ($<HTMLSelectElement>('transform-framework'))?.value ?? 'Spring Boot';
+  const cloud     = ($<HTMLSelectElement>('transform-cloud'))?.value ?? 'AWS';
+
+  if (!token)    { if (statusEl) statusEl.textContent = 'GitHub token is required.'; return; }
+  if (!repoName) { if (statusEl) statusEl.textContent = 'Repository name is required.'; return; }
+
+  const defaultServices = [
+    { name: 'AuthService', programs: [] as string[] },
+    { name: 'UserService', programs: [] as string[] },
+    { name: 'AccountService', programs: [] as string[] },
+    { name: 'CardService', programs: [] as string[] },
+    { name: 'TransactionService', programs: [] as string[] },
+    { name: 'ReportingService', programs: [] as string[] },
+  ];
+  const allSvcs = _txServicesFromArch.length ? _txServicesFromArch : defaultServices;
+  const toExport = svcName === 'all'
+    ? allSvcs
+    : [allSvcs.find(s => s.name === svcName) ?? { name: svcName, programs: [] as string[] }];
+
+  if (statusEl) statusEl.innerHTML = '<span style="color:#fbbf24;">Pushing…</span>';
+
+  for (const svc of toExport) {
+    try {
+      const actualRepo = svcName === 'all' ? `${repoName}-${svc.name.toLowerCase()}` : repoName;
+      const res = await fetch('/transform/codegen/github-push', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          service: svc.name,
+          programs: svc.programs,
+          framework: fw,
+          cloud,
+          github_token: token,
+          repo_name: actualRepo,
+          repo_description: repoDesc || `Migrated from COBOL CardDemo — ${svc.name}`,
+          make_private: isPrivate,
+        }),
+        signal: sig(),
+      });
+      const data = await res.json() as { success: boolean; repo_url?: string; message?: string };
+      if (data.success) {
+        if (statusEl) statusEl.innerHTML += `<br><span style="color:#34d399;">&#x2713; ${escapeHtml(svc.name)}: <a href="${escapeHtml(data.repo_url ?? '')}" target="_blank" rel="noopener" style="color:#5ecdd1;">${escapeHtml(data.repo_url ?? '')}</a></span>`;
+        showToast(`Pushed ${svc.name} to ${data.repo_url ?? ''}`);
+      } else {
+        if (statusEl) statusEl.innerHTML += `<br><span style="color:#f87171;">&#x2717; ${escapeHtml(svc.name)}: ${escapeHtml(data.message ?? 'Unknown error')}</span>`;
+      }
+    } catch (e) {
+      if (!isAbort(e)) {
+        if (statusEl) statusEl.innerHTML += `<br><span style="color:#f87171;">Error: ${escapeHtml((e as Error).message)}</span>`;
+      }
+    }
   }
 }
 
@@ -1891,11 +3189,16 @@ async function loadCFG(prog: string): Promise<void> {
     const id = 'cfg-mmd-' + Date.now();
     const { svg } = await mermaid.render(id, data.mermaid);
     const wrapper = document.createElement('div');
-    wrapper.style.cssText = 'display:inline-block;transform-origin:top left;';
+    wrapper.style.cssText = 'display:block;transform-origin:top left;width:100%;';
     wrapper.innerHTML = svg;
     container.appendChild(wrapper);
     const svgEl = wrapper.querySelector<SVGSVGElement>('svg');
-    if (svgEl) svgEl.style.maxWidth = 'none';
+    if (svgEl) {
+      svgEl.style.maxWidth = 'none';
+      svgEl.style.width = '100%';
+      svgEl.style.height = 'auto';
+      svgEl.style.minHeight = '500px';
+    }
     const infoEl = $<HTMLElement>('cfg-info');
     const base = `${prog} — ${data.nodes?.length ?? 0} nodes · ${data.edges?.length ?? 0} edges`;
     if (infoEl) { infoEl.textContent = base + ' · zoom 100%'; infoEl.dataset.base = base; }
@@ -2585,6 +3888,42 @@ async function exportPlatformPdf(): Promise<void> {
   }
 }
 
+// ── Theme toggle ──────────────────────────────────────────────────────────────
+function toggleTheme(): void {
+  const html = document.documentElement;
+  const isLight = html.getAttribute('data-theme') === 'light';
+  const next = isLight ? 'dark' : 'light';
+  html.setAttribute('data-theme', next);
+  localStorage.setItem('cobol-theme', next);
+  // Swap hljs theme stylesheet
+  const link = document.getElementById('hljs-theme') as HTMLLinkElement | null;
+  if (link) {
+    link.href = next === 'light'
+      ? 'https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-light.min.css'
+      : 'https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css';
+  }
+  // Update toggle button icon: moon in light mode, sun in dark mode
+  const iconWrap = document.getElementById('theme-icon');
+  if (iconWrap) {
+    if (next === 'light') {
+      iconWrap.innerHTML = `<svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`;
+    } else {
+      iconWrap.innerHTML = `<svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>`;
+    }
+  }
+}
+
+function applyStoredTheme(): void {
+  const saved = localStorage.getItem('cobol-theme');
+  if (saved === 'light') {
+    document.documentElement.setAttribute('data-theme', 'light');
+    const link = document.getElementById('hljs-theme') as HTMLLinkElement | null;
+    if (link) link.href = 'https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-light.min.css';
+    const iconWrap = document.getElementById('theme-icon');
+    if (iconWrap) iconWrap.innerHTML = `<svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`;
+  }
+}
+
 // ── Expose to window for onclick handlers ─────────────────────────────────────
 Object.assign(window as any, {
   navigate,
@@ -2645,15 +3984,50 @@ Object.assign(window as any, {
   filterSymbolTable,
   onProviderChange,
   saveSettings,
+  loadCopybooks,
+  filterCopybooks,
+  openCopybookDetail,
+  closeCpyDetail,
+  loadAgentLlms,
+  saveAgentLlms,
+  resetAgentLlms,
+  onAgentLlmProviderChange,
+  onAgentLlmModelChange,
+  switchTxTab,
+  switchTxSubTab,
+  loadTxArchitecture,
+  archZoom,
+  archSetLevel,
+  loadServiceDetail,
+  closeServiceDetail,
+  switchSvcTab,
+  loadTxPlan,
+  acceptPlanStep,
+  rejectPlanStep,
+  editPlanStep,
+  cancelEditPlanStep,
+  saveEditPlanStep,
+  loadTxComprehensiveSpecs,
+  downloadComprehensiveSpec,
+  generateServiceCode,
+  generateAllServices,
+  toggleCodegenOutput,
+  toggleMappingDetail,
+  exportCodegenZip,
+  openGithubPushModal,
+  closeGithubPushModal,
+  pushToGithub,
   loadLayersPage,
   scrollToLayer,
   loadSourceCode,
   lxBrowse,
   lxClose,
   zoomDiagram,
+  toggleTheme,
 });
 
 // ── Init ──────────────────────────────────────────────────────────────────────
+applyStoredTheme();
 void checkHealth();
 setInterval(() => { void checkHealth(); }, 30_000);
 void loadDashboard();
