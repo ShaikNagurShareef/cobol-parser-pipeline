@@ -16,7 +16,7 @@ This platform is not a prototype or a demo. It is a **production-grade, end-to-e
 
 | Dimension | This Submission | Typical Submission |
 |-----------|----------------|-------------------|
-| **Parse coverage** | 120/120 files, 100% (COBOL + JCL + BMS + CSD + copybooks) | COBOL only, ~70-90% |
+| **Parse coverage** | 89/89 tracked files 100% OK (31 COBOL + 40 JCL + 17 BMS + 1 CSD); 49 copybooks via dedicated engine | COBOL only, ~70-90% |
 | **Analysis depth** | 7 layers: AST → Symbols → CFG → Inter-program → Business Logic → Resources → Quality | 1-3 layers, usually AST + call graph |
 | **Business rules** | 384 extracted, 88-level predicates resolved to VALUE clauses | Keywords/regex, unresolved condition names |
 | **Forward engineering** | Canonical IR expression trees → type-correct Java with `BigDecimal/RoundingMode.HALF_EVEN` | Stub methods or text templates |
@@ -217,20 +217,23 @@ This pipeline is designed to be **plug-and-play into the CodeCrafter platform**:
 
 | Layer | Metric | Count |
 |-------|--------|-------|
-| **Source files** | COBOL programs (100% parse coverage) | **31** |
+| **Source files** | COBOL programs | **31** |
 | | JCL jobs + procs | **38** |
 | | BMS screen maps | **17** |
 | | CSD catalog file | **1** → 126 definitions |
-| | Copybooks parsed | **49** |
-| | **Total files processed** | **120 / 120 (100%)** |
+| | Copybooks (.cpy) | **30** (49 resolved including COPY-chain references) |
+| | **Parse-tracked files (parse_coverage)** | **89 / 89 (100% OK)** |
 | **L1 — AST** | Paragraphs | 1,200 |
-| | Statements | 14,360 |
+| | Statements (classified) | 14,360 |
 | **L2 — Symbols** | Data items (all programs) | 22,462 |
 | | 88-level conditions | 1,420 |
 | | Copybook references | 492 |
 | **L3 — Intra-program** | CFG edges total | 2,876 |
 | | — PERFORM edges | 1,770 |
 | | — FALLTHROUGH edges | 952 |
+| | — CICS_RETURN edges | 54 |
+| | — CICS_XCTL edges | 52 |
+| | — LOOP_BACK edges | 48 |
 | | Def-use entries | 470 |
 | **L4 — Inter-program** | Call edges | 116 (40 resolved, 34%) |
 | | CICS transaction flow edges | 312 |
@@ -238,7 +241,7 @@ This pipeline is designed to be **plug-and-play into the CodeCrafter platform**:
 | | JCL–COBOL dataset bindings | 304 |
 | **L5 — Business logic** | Business rules (IF/EVALUATE) | 384 |
 | | Arithmetic specs | 266 |
-| **L6 — Resources** | BMS screen maps | 17 |
+| **L6 — Resources** | BMS screen maps (distinct) | 17 |
 | | CSD entries | 126 |
 | **L7 — Quality** | Migration risks (HIGH) | 12 |
 | | Migration risks (MEDIUM) | 1,352 |
@@ -632,7 +635,7 @@ The Java emitter is accessible via:
 The **Coverage** page shows per-file parse status for every source file. Powered by the `parse_coverage` table (Layer 7):
 - **Green ✓** — parsed successfully, all layers populated
 - **Red ✗** — parse failure with error class: `lexer_error`, `parser_error`, `unsupported_construct`, `preprocessor_failure`, or `timeout`
-- **Current result: 120 / 120 files OK (100%)** — no parse failures across all file types
+- **Current result: 89 / 89 tracked files OK (100%)** — 31 COBOL + 40 JCL + 17 BMS + 1 CSD; copybooks (49) fully processed via dedicated engine, zero failures
 
 ---
 
@@ -797,7 +800,7 @@ Model dropdown populated **live from the provider's API** via `GET /models?provi
 
 | # | Criterion | Weight | Evidence | Status |
 |---|-----------|--------|----------|--------|
-| **1** | **Parse Coverage** (honest, per-file) | 20% | 120/120 files (100%); per-file status at `/reports/coverage`; error class on any failure | ✅ |
+| **1** | **Parse Coverage** (honest, per-file) | 20% | 89/89 tracked files (100%); 31 COBOL + 40 JCL + 17 BMS + 1 CSD; 49 copybooks via dedicated engine; per-file status at `/reports/coverage` | ✅ |
 | **2** | **Artifact Contract** (Layers 1–7, UUID-linked) | 25% | All 7 layers populated; deterministic uuid5; 20 DB tables cross-linked by `parent_uuid`; UUID stability test passes | ✅ |
 | **3** | **Spec Generation** (grounded, demo-able) | 15% | LangGraph 5-node pipeline; 6 parallel personas; grounding score per output; Markdown + PDF export | ✅ |
 | **4** | **Forward Engineering** (IR → Java) | 15% | Canonical IR expression trees → BigDecimal/HALF_EVEN/long/String; live at `/emit-java/{name}` | ✅ |
