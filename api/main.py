@@ -1278,7 +1278,7 @@ async def generate_comprehensive_spec(body: dict):
 
             # All arithmetic specs
             all_arith = _rows_to_list(con.execute(
-                """SELECT n.name AS program, a.expression_text, a.result_field
+                """SELECT n.name AS program, a.expression_json AS expression_text, a.result_var AS result_field
                    FROM arithmetic_specs a JOIN nodes n ON n.uuid=a.program_uuid
                    ORDER BY n.name"""
             ).fetchall())
