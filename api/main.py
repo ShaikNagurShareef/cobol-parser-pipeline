@@ -1479,15 +1479,24 @@ All {len(programs)} COBOL programs with complexity metrics:
         import concurrent.futures
         from llm.multi_agent import _call_llm
 
-        SPEC_SYSTEM = """You are a senior enterprise architect writing a professional modernisation specification.
-Write formal technical prose. Use markdown formatting:
-- `#` for major section titles, `##` for subsections, `###` for program/component entries
-- Pipe tables for structured data (| Col | Col | with separator row)
-- Bullet lists and numbered lists for requirements and steps
-- ```java code blocks for Java scaffolding
-- ```mermaid code blocks for architecture diagrams
-Be exhaustive and specific — cite actual program names, field names, and business rule predicates from the context.
-Do NOT hedge with "I believe" or "may be". Write authoritative specs based on the extracted data."""
+        SPEC_SYSTEM = f"""You are a senior enterprise architect and technical writer producing a comprehensive modernisation specification for a real production COBOL application.
+
+CRITICAL WRITING REQUIREMENTS — READ CAREFULLY:
+1. Write in FULL ENGLISH PARAGRAPHS throughout. Every major point must be explained in complete, well-constructed sentences.
+2. NEVER produce a bullet list or table without at least one preceding paragraph that explains what it shows and why it matters.
+3. For each program, write a NARRATIVE description (minimum 3 sentences) explaining: what the program does for a user, what business problem it solves, and what happens step by step when it executes.
+4. For each business rule, express it as a business policy sentence: "This rule ensures that <business scenario> by validating <condition>. When this condition fails, the system <action>, preventing <business harm>."
+5. Explain the WHY behind every technical decision in plain English. Do not just state facts — interpret them for the reader.
+6. Use the actual program names, field names, and predicate text from the context data — never say "the program" when you can say "COTRN02C", never say "a field" when you can say "WS-TRAN-AMT".
+7. Business stakeholders (non-technical) must be able to read sections 1–2 and understand what the system does. Technical teams must be able to implement sections 3–7 without guessing.
+8. Depth over breadth: explain {min(5, total_biz_rules)} rules thoroughly rather than listing all {total_biz_rules} in one-line bullets.
+9. Minimum 1,500 words per section — write extensively. This is a professional specification document, not a summary.
+
+MARKDOWN FORMATTING:
+- `#` for section title, `##` for subsections, `###` for per-program entries
+- Tables only for structured comparison data; always preceded by an explanatory paragraph
+- ```java for Java code (with package declarations and imports), ```mermaid for diagrams, ```sql for SQL DDL
+- Every code block must be preceded by a paragraph explaining what the code does"""
 
         llm_sections = [
             ("Business Context & Domain Analysis",
@@ -1496,86 +1505,176 @@ Do NOT hedge with "I believe" or "may be". Write authoritative specs based on th
 {portfolio_ctx}
 
 ## Your Task
-Write a comprehensive **Business Context and Domain Analysis** section. This is the first section that business stakeholders read. Cover:
 
-1. **System Overview** — What CardDemo is, who uses it, and what business problem it solves. The system is a credit-card management platform running on IBM z/OS CICS + batch. Infer the full scope from the program names (COSGN=sign-on, COACC=accounts, COTRN=transactions, COUSR=users, COBIL=billing, CORPT=reports, COADM=admin).
+Write a deep **Business Context and Domain Analysis** for the CardDemo credit-card management system. This section must be readable by a business executive who has never seen the source code.
 
-2. **Business Capability Map** — A table mapping each capability domain (User Management, Account Management, Transaction Processing, Billing & Statements, Reporting, Administration) to the specific programs that implement it, with a one-sentence description of what each program does.
+### 1. System Overview — What Is CardDemo?
 
-3. **Business Transaction Flows** — For each major online workflow (sign-on, view account, list transactions, add transaction, update account, manage users): describe the end-to-end flow, which programs are invoked in sequence (from the call graph), and what data is read/written.
+Write three to four paragraphs in plain English explaining: what CardDemo is as a business system, who the users are (cardholders, customer service agents, administrators, batch operators), what business problems it solves, and why it runs on IBM z/OS CICS with batch JCL jobs. Explain the two distinct operational modes: online (real-time CICS transactions) and batch (overnight JCL jobs). Do NOT just list program names — tell the story of how the system works as a whole.
 
-4. **Business Rules Summary** — Group the {total_biz_rules} extracted rules into categories: Input Validation, Authorization/Security, Calculation/Derivation, Routing/Navigation, Error Handling. For each category give 3-5 concrete examples citing the actual predicate text from the context.
+### 2. Business Capability Domains
 
-5. **Batch Processing Business Functions** — For each JCL job, explain its business purpose (e.g., statement generation, account balancing, transaction posting) and its dependencies.
+For each of the following capability domains, write a full paragraph explaining what the domain does, then show a table mapping programs to capabilities:
 
-6. **Data Entities** — Identify the 5-8 core business entities (Account, Transaction, User, Card, Statement, etc.) and map them to the key COBOL data items and copybooks from the context.
+- **User Management & Authentication** — How the system controls who can log in, manages user accounts, and enforces access control. Cite the specific sign-on flow.
+- **Account Management** — How credit card accounts are created, viewed, and modified. Explain the account lifecycle.
+- **Transaction Processing** — How credit card transactions (purchases, payments) are recorded and managed. Explain real-time vs. batch processing.
+- **Billing & Statements** — How monthly statements are generated, balances calculated, and payments applied.
+- **Reporting** — What business reports the system produces and for whom.
+- **Administration** — What administrative functions exist and who performs them.
 
-Include tables and bullet lists throughout. This section should be readable by a non-technical business owner."""),
+Then produce the capability-to-program mapping table.
 
-            ("Functional Specifications",
+### 3. End-to-End Business Workflows
+
+For each of the following workflows, write a narrative (3–5 sentences minimum) describing the complete user journey, then show the program call sequence from the call graph:
+
+- **User Sign-On**: How a user logs into the system
+- **View Account Details**: How a customer service agent looks up an account
+- **Process a Transaction**: How a new transaction is added to an account
+- **Generate Monthly Statement**: How the batch billing process works overnight
+- **Add / Update a User**: How an administrator manages user accounts
+
+### 4. Business Rules Explained in Plain English
+
+Group the {total_biz_rules} extracted business rules into these categories and explain each group narratively:
+
+- **Input Validation Rules**: What data must be present and correctly formatted before processing begins. For each example rule, write: "This rule protects against [business risk] by ensuring [condition]."
+- **Authorisation & Security Rules**: Who is allowed to do what, and what happens when access is denied.
+- **Calculation & Derivation Rules**: How financial amounts, balances, and totals are computed. Cite actual arithmetic expressions from the context.
+- **Navigation & Routing Rules**: How the system decides which screen or program to go to next.
+- **Error Handling Rules**: What happens when something goes wrong, and how errors are communicated back to users.
+
+Give 3–5 concrete examples per category using the actual predicate text from the context (e.g., "The rule `WS-USER-ID = SPACE` ensures the user cannot proceed without entering a user ID...").
+
+### 5. Batch Processing — Overnight Business Functions
+
+For each JCL job in the context, write a paragraph explaining its business purpose in plain English — what business event triggers it, what data it reads and writes, what the business outcome is, and how long it is expected to run. Explain the dependency chain between jobs.
+
+### 6. Core Business Entities
+
+Identify the 5–8 core business entities and for each write: (1) what it represents in business terms, (2) its key attributes from the COBOL data structures, (3) its relationships to other entities, and (4) how it will be represented in the target Java/PostgreSQL system. End with an ER diagram in Mermaid `erDiagram` syntax."""),
+
+            ("Functional Specifications — Online Programs",
              f"""{SPEC_SYSTEM}
 
 {portfolio_ctx}
 
 ## Your Task
-Write complete **Functional Specifications** for every program in the portfolio. For each program write a `###` subsection with:
 
-- **Purpose**: One paragraph describing what this program does in business terms
-- **Inputs**: Table of input parameters (COMMAREA fields or file records) with name, type, description
-- **Processing Logic**: Numbered list of processing steps derived from the business rules. Cite actual predicate text where available (e.g., "Validates that ACCT-STATUS-FLAG IN ('A','C') before proceeding")
-- **Outputs**: Table of outputs/responses
-- **Business Rules Applied**: Bullet list of the specific rules from this program (from context above) — use the predicate_resolved or predicate_raw text
-- **Calls / Called By**: From the call graph
+Write complete **Functional Specifications** for every ONLINE CICS program in the portfolio. These are the interactive programs users work with in real time. Cover these programs: {', '.join(p['name'] for p in programs if any(x in p['name'] for x in ['SGN','ACC','TRN','USR','ADM','CRD','BIL']))}.
 
-Cover all {len(programs)} programs: {', '.join(p['name'] for p in programs)}.
+For EACH program, write a `###` subsection structured as follows. Every subsection must have substantial English prose — do not reduce a program to a bullet list.
 
-Be exhaustive — do not skip or summarise any program. The 88-level conditions in the context should be cited as named business predicates."""),
+**Program Description** (REQUIRED — minimum 4 sentences): Explain what this program does from the perspective of the end user or business operator. Describe the screen or interface the user sees, what they can do, and what happens when they take each action. Explain this program's role in the overall system — which programs call it and which programs it calls (from the call graph context). Explain any special complexity or migration challenges.
 
-            ("Data Architecture & Information Model",
+**Business Purpose**: One paragraph explaining the business reason this program exists. What would break if this program did not exist?
+
+**Input Data**: A table listing each key input field with its COBOL name, data type (from PIC clause or copybook), and plain-English description of what it represents.
+
+**Step-by-Step Processing Logic**: A numbered list of processing steps written in plain English. Each step must be a complete sentence explaining WHAT happens and WHY. For steps involving business rules, quote the actual predicate text and explain what it means: for example, "Step 3: The program validates that the account status field (ACCT-STATUS-FLAG) holds a value in the set ('A','C'), meaning the account is either Active or Closed-with-balance. If the account is in any other status (such as 'D' for Declined), the program rejects the transaction and displays error code EM-INVALID-ACCT."
+
+**Business Rules Applied in This Program**: For each business rule extracted from this program, write a complete English explanation: what business scenario the rule handles, the exact condition (from predicate_resolved or predicate_raw), and the outcome (then_summary / else_summary).
+
+**Output Data**: What the program produces — screen fields updated, files written, messages returned.
+
+**Error Scenarios**: What can go wrong, how the program responds, and what the user sees.
+
+**Calls / Called By**: Which programs invoke this one and which programs it invokes, with a sentence explaining why.
+
+Do not skip, abbreviate, or summarise any program. The 88-level condition names from the context are named business predicates — use them by name."""),
+
+            ("Functional Specifications — Batch Programs & Data Architecture",
              f"""{SPEC_SYSTEM}
 
 {portfolio_ctx}
 
 ## Your Task
-Write a complete **Data Architecture and Information Model** section covering:
 
-1. **Conceptual Entity-Relationship Diagram** — Generate a Mermaid `erDiagram` showing the main business entities (Account, CreditCard, Transaction, User, Statement, etc.) and their relationships. Use actual field names from the copybook data in the context.
+This section has two parts.
 
-2. **Entity Definitions** — For each business entity: description, key attributes (from the data items/copybooks), relationships, and the COBOL source structure it maps to.
+## Part A — Batch Program Functional Specifications
 
-3. **Copybook Structure** — For each shared copybook in the context, document its purpose, fields, and which programs use it. Show how it becomes a shared JPA @Embeddable or @Entity in Java.
+Write complete functional specifications for all BATCH programs (programs run by JCL jobs, not CICS online screens). Cover: {', '.join(p['name'] for p in programs if not any(x in p['name'] for x in ['SGN','ACC','TRN','USR','ADM','CRD','BIL']))}.
 
-4. **COMP-3 Packed Decimal Inventory** — Table of all financial fields (identified by COMP-3 usage, S9 PIC clauses, or names containing AMT/AMOUNT/BAL/BALANCE). These must use `BigDecimal` with `RoundingMode.HALF_EVEN` in Java.
+For each batch program, follow the same structure as online programs (description, purpose, inputs, processing steps, outputs, business rules) but also explain:
+- **JCL Context**: Which JCL job runs this program, what DD statements supply the input/output files, and what the file datasets represent in business terms.
+- **Batch Processing Volume**: What volume of records is expected, what is the expected runtime, and what happens if it fails (restart/recovery).
+- **Dependencies**: What must run before this program, and what depends on its output.
 
-5. **88-Level Condition Catalogue** — All {total_conds_88} named conditions grouped by parent variable. Show how each maps to a Java enum (e.g., `AccountStatus.ACTIVE`, `AccountStatus.CLOSED`).
+## Part B — Data Architecture & Information Model
 
-6. **Target Relational Schema** — SQL DDL for the 5-8 core tables in PostgreSQL, normalised from the flat COBOL copybook structure. Include primary keys, foreign keys, and indexes.
+### Conceptual Data Model
 
-Include the ER diagram and SQL DDL as code blocks."""),
+Write two paragraphs explaining how CardDemo's data is structured: how the flat COBOL file structures (VSAM, QSAM) map to logical business entities, and why COBOL's copybook-based flat-file approach differs from a relational database. Explain the migration challenge this creates.
 
-            ("Technical Architecture & Java Scaffolding",
+Then produce a Mermaid `erDiagram` showing Account, CreditCard, Transaction, User, Statement, and their relationships.
+
+### Copybook Data Structures
+
+For each shared copybook listed in the context, write a paragraph explaining: what business entity or data structure it defines, which programs use it, and what the key fields are. Explain how it will become a JPA `@Entity` or `@Embeddable` in the target Java system.
+
+### Packed-Decimal Financial Fields
+
+Write a paragraph explaining why COBOL COMP-3 packed-decimal arithmetic is critical to get exactly right during migration — any rounding difference in a financial calculation can produce reconciliation failures. Then list all financial fields (PIC S9...COMP-3, names containing AMT/BAL/AMOUNT/BALANCE) and show how each maps to `BigDecimal` with `RoundingMode.HALF_EVEN` in Java.
+
+### 88-Level Named Conditions — Java Enum Mapping
+
+Write a paragraph explaining what COBOL 88-level conditions are (named boolean predicates attached to a parent field) and why they are important for business logic clarity. Then for each group of 88-level conditions (grouped by parent variable), show the Java enum that represents them. For example, if the parent variable is ACCT-STATUS-FLAG with values 'A'=ACTIVE, 'C'=CLOSED, 'D'=DECLINED, show the Java enum `AccountStatus`.
+
+### Target PostgreSQL Schema
+
+Write a paragraph explaining the normalisation decisions being made (why the flat COBOL structures become normalised relational tables). Then produce SQL DDL for the 5–8 core tables with primary keys, foreign keys, NOT NULL constraints, and comments explaining what each column represents in business terms."""),
+
+            ("Technical Architecture & Java Implementation Guide",
              f"""{SPEC_SYSTEM}
 
 {portfolio_ctx}
 
 ## Your Task
-Write the complete **Technical Architecture and Java Code Scaffolding** section. Produce actual compilable Java class skeletons — not pseudocode:
 
-1. **Target Architecture Overview** — Spring Boot 3.x, Spring Batch 5.x, PostgreSQL, Redis (session), Kafka (async events). Draw a Mermaid `graph TB` showing the layered architecture (Controller → Service → Repository → DB).
+Write the complete **Technical Architecture and Java Implementation Guide**. This section is a blueprint for the development team. Every code block must be accompanied by a detailed explanation paragraph.
 
-2. **Maven Module Structure** — Show the multi-module project layout (e.g., `carddemo-parent`, `carddemo-domain`, `carddemo-batch`, `carddemo-api`, `carddemo-migration`) with package names.
+### 1. Target Architecture — Why These Technology Choices
 
-3. **JPA Entity Classes** — Full Java class skeletons for Account, Transaction, User, CreditCard using annotations (@Entity, @Table, @Column, @Id). Use `BigDecimal` for all monetary/packed-decimal fields. Map 88-level conditions to Java enums.
+Write a paragraph for each technology choice explaining WHY it was selected for this migration:
+- **Spring Boot 3.x**: How it replaces CICS transaction management
+- **Spring Batch 5.x**: How it replaces JCL job control and batch processing
+- **PostgreSQL**: How it replaces VSAM flat files and why relational is appropriate
+- **Redis**: How it replaces CICS COMMAREA session state
+- **Kafka**: Which asynchronous events (if any) emerge from the COBOL batch flows
 
-4. **Repository Interfaces** — Spring Data JPA repository interfaces for each entity.
+Then draw a Mermaid `graph TB` showing the complete layered architecture from REST client through Spring controllers, service layer, repositories, to PostgreSQL.
 
-5. **Service Classes** — Service class skeletons for the top 5 programs (e.g., AccountService, TransactionService, UserService) with method signatures that implement the business rules from the context. Show BigDecimal arithmetic patterns.
+### 2. Maven Multi-Module Project Structure
 
-6. **REST Controllers** — @RestController class skeletons for the CICS transaction equivalents, with @GetMapping/@PostMapping/@PutMapping annotations and request/response DTOs.
+Write a paragraph explaining the module boundaries and why the codebase is split this way. Then show the complete Maven project structure with module names, package names, and a one-sentence description of each module's responsibility.
 
-7. **Spring Batch Jobs** — @Configuration class with JobBuilder and StepBuilder definitions for the JCL batch jobs identified in the context.
+### 3. JPA Entity Classes — Detailed Explanation
 
-Use ```java code blocks throughout. Every class must have a package declaration and imports."""),
+For each of the core entities (Account, CreditCard, Transaction, User), write a paragraph explaining: what COBOL structure it derives from, which copybook defines its fields, and what migration decisions were made (normalisation, type mapping). Then produce the full Java class skeleton including:
+- Package declaration and all imports
+- `@Entity`, `@Table` annotations with actual table names
+- `@Id`, `@Column` annotations with actual column names matching the PostgreSQL schema
+- `BigDecimal` for all COMP-3 packed decimal fields (with justification)
+- Java enums for all 88-level condition groups
+- Relationship annotations (`@OneToMany`, `@ManyToOne`) matching the ER diagram
+
+### 4. Service Layer — Business Rule Implementation
+
+For each of the top 5 services (AccountService, TransactionService, UserService, BillingService, ReportService), write a paragraph explaining what COBOL program(s) this service replaces and how the business rules translate to Java methods. Then produce the service class skeleton with:
+- Method signatures that directly implement the business rules from the context
+- BigDecimal arithmetic patterns (showing how COBOL COMPUTE statements become Java)
+- Validation logic that enforces the 88-level conditions as enum checks
+- Transaction boundary annotations (`@Transactional`)
+
+### 5. REST API — CICS Transaction Equivalents
+
+Write a paragraph explaining how CICS pseudoconversational transactions map to stateless REST endpoints. Then produce `@RestController` skeletons for each major capability (auth, accounts, transactions, users, reports) with `@GetMapping`, `@PostMapping`, `@PutMapping`, proper request/response DTOs, and HTTP status codes.
+
+### 6. Spring Batch Jobs — JCL Replacement
+
+For each JCL job in the context, write a paragraph explaining how it maps to a Spring Batch job configuration. Then produce the `@Configuration` class with `JobBuilder`, `StepBuilder`, `ItemReader` (reading from PostgreSQL instead of VSAM), `ItemProcessor` (implementing the COBOL batch logic), and `ItemWriter` definitions."""),
 
             ("Migration Strategy & Execution Roadmap",
              f"""{SPEC_SYSTEM}
@@ -1583,67 +1682,144 @@ Use ```java code blocks throughout. Every class must have a package declaration 
 {portfolio_ctx}
 
 ## Your Task
-Write a detailed **Migration Strategy and Execution Roadmap** covering:
 
-1. **Selected Pattern: Strangler Fig** — Explain why Strangler Fig is optimal for this portfolio. The CICS pseudoconversational architecture maps naturally to REST microservices. Draw a Mermaid `graph LR` showing the Strangler Fig progression (CICS → API Gateway → Spring Boot services).
+Write a detailed, actionable **Migration Strategy and Execution Roadmap**. This document must give the project team enough detail to start executing. Every recommendation must be justified in plain English with reference to the actual data from the context.
 
-2. **Microservice Decomposition** — Map each COBOL program to a target microservice. Table: Program | Target Service | Bounded Context | Migration Complexity (Low/Medium/High based on risk count and CFG complexity).
+### 1. Why Strangler Fig — The Strategic Rationale
 
-3. **Phased Execution Plan** — Six phases ordered by call-graph topology (leaves migrated first):
+Write three paragraphs explaining:
+- What the Strangler Fig pattern is and how it works in practice
+- Why it is the right choice for THIS specific COBOL portfolio (reference the CICS pseudoconversational architecture, the number of programs, the call graph topology, and the risk profile from the context)
+- What the alternatives were (Big Bang, Parallel Universe) and why they were rejected
 
-   For each phase: name, duration estimate, programs migrated (specific names from context, ordered leaf-to-hub), deliverables, parallel-run acceptance criteria, rollback procedure. Use the risk data to sequence HIGH-risk programs last.
+Then draw a Mermaid `graph LR` showing the Strangler Fig progression: existing CICS → API Gateway routing layer → Spring Boot services incrementally taking over, with the COBOL system gradually being decommissioned.
 
-4. **Mermaid Gantt Chart** — A `gantt` diagram showing all 6 phases with realistic durations.
+### 2. Microservice Decomposition — How the Programs Map to Services
 
-5. **Data Migration Plan** — How VSAM flat files become PostgreSQL tables. ETL approach, validation strategy using the {total_biz_rules} business rules as acceptance tests.
+Write a paragraph explaining the bounded context boundaries drawn from the call graph. Explain which programs are tightly coupled (and therefore must migrate together) and which are loosely coupled (and can migrate independently). Use the actual call graph data from the context.
 
-6. **Parallel Run Strategy** — Run COBOL and Java simultaneously; reconcile outputs using the extracted arithmetic specs as golden values.
+Then produce the decomposition table: Program | Target Microservice | Bounded Context | Migration Complexity (Low/Medium/High — justified by risk count and CFG edge count from context).
 
-Include the Gantt chart as a ```mermaid code block."""),
+### 3. Phased Execution Plan
 
-            ("Risk Analysis & Mitigation",
+Write a narrative for each of the six migration phases. For each phase, write at least a paragraph explaining: what is being migrated and why in this order (justify with call graph topology — leaves before hubs), what the team delivers at the end of the phase, how you validate it works correctly before moving on, and what the rollback plan is if something goes wrong.
+
+**Phase 1 — Foundation** (Weeks 1–4): Infrastructure setup, database schema, CI/CD pipeline
+**Phase 2 — Utility & Leaf Programs** (Weeks 5–10): Programs with no callees, lowest risk
+**Phase 3 — Core Business Logic** (Weeks 11–18): Account and user management programs
+**Phase 4 — Transaction Processing** (Weeks 19–26): High-complexity transaction programs
+**Phase 5 — Batch Pipeline** (Weeks 27–34): Spring Batch replacements for JCL jobs
+**Phase 6 — Integration & Cutover** (Weeks 35–40): Final integration, parallel run, decommission
+
+Use the actual program names from the context and assign each program to a specific phase based on its risk level and call graph position.
+
+Then produce a Mermaid `gantt` diagram showing all six phases.
+
+### 4. Data Migration Strategy
+
+Write three paragraphs explaining:
+- How VSAM flat files will be read and loaded into PostgreSQL (ETL tooling, format conversion)
+- How the {total_biz_rules} business rules extracted from the COBOL are used as automated acceptance tests during parallel run
+- What a "successful" data migration looks like — what reconciliation checks validate that no data was lost or corrupted
+
+### 5. Parallel Run Strategy
+
+Write a paragraph explaining the parallel run architecture: both the COBOL system and the Spring Boot system process the same inputs, and outputs are compared record-by-record. Explain how the {total_arith} arithmetic specs are used as golden-value acceptance criteria. Explain what discrepancy threshold is acceptable and what triggers a rollback."""),
+
+            ("Risk Analysis & Mitigation Plan",
              f"""{SPEC_SYSTEM}
 
 {portfolio_ctx}
 
 ## Your Task
-Write a comprehensive **Risk Analysis and Mitigation Plan**:
 
-1. **Risk Heat Map** — A Mermaid `quadrantChart` (Impact vs Likelihood) placing the main risk categories.
+Write a comprehensive **Risk Analysis and Mitigation Plan** that a project manager and technical lead can use to govern the migration. Every risk must be explained in plain English — not just named.
 
-2. **HIGH Risks — Detailed Analysis** — For each of the {risk_high} HIGH-severity risks in the context: Risk ID, Program, Risk Type, Root Cause, Business Impact, Technical Impact, Mitigation Strategy, Acceptance Criteria, Owner (role). Use a table.
+### 1. Risk Overview — Understanding the Risk Landscape
 
-3. **MEDIUM Risks — Summary by Category** — Group the {risk_med} MEDIUM risks by type (DYNAMIC_CALL, GOTO, ALTER, REDEFINES, COMP3, etc.). For each group: count, affected programs, standard mitigation approach.
+Write two paragraphs explaining: what types of technical risks exist in this COBOL portfolio (based on the {total_risks} risks extracted from the parser), why these specific risk types matter for a Java migration, and what the overall risk posture of the project is. Be specific: mention the {risk_high} HIGH severity and {risk_med} MEDIUM severity risks and what they imply for the project timeline and approach.
 
-4. **Risk-Driven Migration Sequencing** — Based on the risk data, produce the recommended order to migrate programs (safest first). Explain why certain programs (those with HIGH risks) should be migrated last with extended parallel-run periods.
+Then draw a Mermaid `quadrantChart` placing the major risk categories (DYNAMIC_CALL, GOTO, REDEFINES, COMP3_ARITHMETIC, CICS_STATE, BATCH_VOLUME) on Impact vs Likelihood axes.
 
-5. **Non-Functional Risks** — Performance (batch throughput matching COBOL), Accuracy (BigDecimal vs COMP-3), Security (RACF → Spring Security), Availability (z/OS HA → Kubernetes).
+### 2. HIGH Severity Risks — Full Analysis
 
-6. **Risk Register Table** — Complete table: Risk ID | Program | Severity | Kind | Description | Mitigation | Status.
+For EACH of the {risk_high} HIGH severity risks in the context, write a detailed analysis paragraph explaining:
+- What the risk is in plain English (not just the risk type code — explain what it means)
+- Which program it affects and where in the code (line number from context)
+- Why it is classified HIGH — what could go wrong during migration
+- The specific business impact if this risk materialises (financial errors, security breach, data loss, etc.)
+- The recommended mitigation strategy — concrete steps the development team must take
+- How you verify the mitigation worked (acceptance criteria)
 
-Include all HIGH and MEDIUM risks from the context data above."""),
+Follow each analysis paragraph with a risk card table: Risk ID | Program | Line | Kind | Business Impact | Mitigation | Owner | Status.
 
-            ("Testing Strategy",
+### 3. MEDIUM Severity Risks — Category Analysis
+
+Group the {risk_med} MEDIUM risks by type. For each risk type, write a paragraph explaining: what the risk type means technically, why it scores MEDIUM (not HIGH), which programs are affected (list them), and the standard mitigation approach. Do not just list — explain.
+
+### 4. Non-Functional Risks
+
+For each of the following non-functional risk areas, write a paragraph explaining the specific risk for THIS migration (not generic advice) and the mitigation:
+- **Arithmetic Precision**: COBOL COMP-3 packed decimal vs. Java BigDecimal — where precision differences can arise in the {total_arith} arithmetic expressions
+- **Performance**: Batch throughput — the JCL jobs must match or exceed COBOL MIPs performance on the new platform
+- **Security**: RACF/CICS security model → Spring Security — what security controls exist in the COBOL and how they map to Java
+- **Availability**: z/OS high availability (5-nines) → Kubernetes deployment — what SLA commitments must be maintained
+
+### 5. Risk-Driven Migration Sequencing
+
+Write a paragraph explaining how risk severity determines program sequencing. Then list all programs in recommended migration order (safest first), with a one-sentence justification for each program's position (e.g., "COSGN00C is last because it has {risk_high} HIGH risks including dynamic CALL targets that require extended parallel-run validation")."""),
+
+            ("Testing Strategy & Quality Assurance",
              f"""{SPEC_SYSTEM}
 
 {portfolio_ctx}
 
 ## Your Task
-Write a complete **Testing Strategy** for the modernisation:
 
-1. **Testing Pyramid** — Unit → Integration → System → Parallel-Run. Draw a Mermaid diagram.
+Write a complete **Testing Strategy and Quality Assurance Plan** for the CardDemo modernisation. This must be detailed enough for a QA lead to build the test plan from it.
 
-2. **Unit Test Catalogue** — For each of the {total_biz_rules} business rules, define a unit test. Group by program. For each: Test ID, method under test, input condition (the predicate), expected outcome (then/else summary). Show 3 concrete JUnit 5 test examples as ```java code.
+### 1. Testing Philosophy — Why Testing This Migration Is Different
 
-3. **Integration Tests** — Test each REST endpoint against a real PostgreSQL test container (no mocks). For each endpoint: test scenario, payload, expected status, expected response fields.
+Write two paragraphs explaining: why testing a COBOL-to-Java migration is fundamentally different from testing greenfield development (the COBOL is the specification — if the Java doesn't match it exactly, the migration has failed), and what the overall testing approach is (the {total_biz_rules} extracted business rules are the canonical acceptance criteria — not a test team's interpretation of requirements).
 
-4. **Parallel-Run Reconciliation Framework** — Architecture for running COBOL and Java side-by-side and reconciling outputs. The {total_arith} arithmetic specs are the golden acceptance criteria. Show how BigDecimal results are compared to COMP-3 outputs.
+Then draw a Mermaid diagram showing the testing pyramid: Unit Tests → Integration Tests → System Tests → Parallel-Run → Performance Tests.
 
-5. **Batch Regression Tests** — For each JCL job, define the input datasets, expected output datasets, and comparison approach (byte-by-byte vs field-by-field tolerance).
+### 2. Unit Testing — Business Rule Coverage
 
-6. **Performance Benchmarks** — Targets for Spring Batch throughput matching COBOL MIPs. Methodology for measuring and tuning.
+Write a paragraph explaining that every one of the {total_biz_rules} extracted business rules must have a corresponding unit test, and that the predicate text extracted by the parser IS the test specification.
 
-7. **Test Data Management** — Synthetic data generation strategy based on the copybook field definitions."""),
+For the top 5 programs by business rule count, write a subsection explaining what the unit tests for that program verify. Group the rules by type (validation, calculation, routing). For each group, show one concrete JUnit 5 test example in Java that demonstrates the pattern:
+
+```java
+@Test
+void <testMethodName>() {{
+    // Arrange: set up the exact condition from predicate_raw
+    // Act: call the service method
+    // Assert: verify then_summary or else_summary outcome
+}}
+```
+
+### 3. Integration Testing
+
+Write a paragraph explaining the integration testing strategy: every REST endpoint is tested with a real PostgreSQL test container (no mocks), and every Spring Batch job is run end-to-end with real data. Then for each major API capability (auth, accounts, transactions, users, billing), describe the key test scenarios, expected inputs, and expected outputs.
+
+### 4. Parallel-Run Reconciliation — The Critical Quality Gate
+
+Write two paragraphs explaining how the parallel run works as the ultimate quality gate: the COBOL system and Java system process identical input transactions, and every output is compared field-by-field. The {total_arith} arithmetic specifications extracted from the parser are the golden reference values — if Java produces a different result for any calculation, it fails. Explain what happens when a discrepancy is found (investigation, root cause, fix, re-run).
+
+Show a code sketch of the reconciliation framework in Java (how outputs are compared and discrepancies flagged).
+
+### 5. Batch Regression Testing
+
+For each JCL job in the context, write a paragraph explaining: what the test input dataset looks like, what the expected output is, and how the comparison is done (byte-by-byte for fixed-format records, field-by-field with tolerance for financial amounts). Explain what a batch regression test failure means and how it is investigated.
+
+### 6. Performance Testing
+
+Write a paragraph explaining the performance acceptance criteria: the Spring Batch jobs must match COBOL MIPs performance within an agreed tolerance (typically 120% of COBOL runtime is the maximum). Explain the methodology for measuring batch throughput and identifying bottlenecks in the Java implementation.
+
+### 7. Test Data Management
+
+Write a paragraph explaining how test data is generated: synthetic data based on the copybook field definitions (PIC clauses define the valid value ranges), plus a subset of production-equivalent data (anonymised) for realistic volume testing. Explain how the 88-level conditions constrain valid test data values."""),
         ]
 
         appendix_static = f"""# Appendix — Complete Extracted Artifacts

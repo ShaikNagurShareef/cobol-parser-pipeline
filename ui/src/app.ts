@@ -951,7 +951,7 @@ function addPersonaTab(persona: string, label: string, state: string,
   if (contentEl) {
     const div = document.createElement('div');
     div.id = `persona-content-${persona}`;
-    div.style.cssText = 'display:none;font-size:13px;line-height:1.8;color:var(--text);padding:4px 0;';
+    div.style.cssText = 'display:none;font-size:13px;line-height:1.8;color:var(--text);padding:4px 0;overflow-x:auto;max-width:100%;word-break:break-word;overflow-wrap:break-word;';
     div.innerHTML = '<em style="color:var(--muted);">Generating…</em>';
     contentEl.appendChild(div);
   }
@@ -3990,7 +3990,7 @@ function _renderMarkdown(md: string): string {
     for (const row of dataRows) {
       if (!row.trim()) continue;
       const cells = row.split('|').filter((_c, i, arr) => i > 0 && i < arr.length - 1).map(c => c.trim());
-      html += '<tr>' + cells.map(c => `<td style="padding:6px 10px;border:1px solid var(--border);">${c}</td>`).join('') + '</tr>';
+      html += '<tr>' + cells.map(c => `<td style="padding:6px 10px;border:1px solid var(--border);word-break:break-word;max-width:300px;">${c}</td>`).join('') + '</tr>';
     }
     html += '</tbody></table></div>';
     return html;
