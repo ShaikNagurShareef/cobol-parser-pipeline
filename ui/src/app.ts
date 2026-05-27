@@ -434,7 +434,7 @@ async function explainKGNode(): Promise<void> {
     }
   } else if (kind === 'copybook') {
     try {
-      explain.innerHTML = '<em style="color:var(--muted);">⟳ Fetching copybook context…</em>';
+      explain.innerHTML = '<em style="color:var(--muted);">⟳ Analysing copybook fields and consumers…</em>';
       const result = await apiFetch<{ spec: string }>('/explain-copybook', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -447,8 +447,23 @@ async function explainKGNode(): Promise<void> {
           '\n\n⚠ LLM explanation unavailable — configure an API key in Settings.');
       }
     }
+  } else if (kind === 'jcl') {
+    try {
+      explain.innerHTML = '<em style="color:var(--muted);">⟳ Analysing JCL job steps, datasets and business rules…</em>';
+      const result = await apiFetch<{ spec: string }>('/explain-jcl', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: label }),
+      });
+      explain.innerHTML = _renderMarkdown(result?.spec ?? '(no explanation returned)');
+    } catch(e) {
+      if (!isAbort(e)) {
+        explain.innerHTML = _renderMarkdown((_kgSelectedNode.title ?? label) +
+          '\n\n⚠ LLM explanation unavailable — configure an API key in Settings.');
+      }
+    }
   } else {
-    // JCL nodes: show metadata summary
+    // Other node types: show metadata
     explain.innerHTML = _renderMarkdown(_kgSelectedNode.title ?? label);
   }
 
@@ -851,28 +866,85 @@ async function generateSpecPersonas(): Promise<void> {
 
 async function generateComprehensiveSpec(): Promise<void> {
   const btn = $<HTMLButtonElement>('spec-comp-btn');
-  const progressEl = $<HTMLElement>('spec-progress');
-  const progressMsg = $<HTMLElement>('spec-progress-msg');
-  const progressFill = $<HTMLElement>('spec-progress-fill');
   const tabsEl = $<HTMLElement>('spec-tabs');
   const contentEl = $<HTMLElement>('spec-tab-content');
   const emptyState = $<HTMLElement>('spec-empty-state');
 
-  if (btn) { btn.disabled = true; btn.innerHTML = '⟳ Building portfolio report…'; }
-  if (progressEl) progressEl.style.display = '';
-  if (progressMsg) progressMsg.textContent = 'Assembling all 7 artifact layers across entire corpus…';
-  if (progressFill) progressFill.style.width = '0%';
+  if (btn) { btn.disabled = true; btn.textContent = '⟳ Building portfolio report…'; }
   if (emptyState) emptyState.style.display = 'none';
 
-  // Navigate to spec page and clear old tabs
   navigate('spec');
   _personaResults = {};
   if (tabsEl) tabsEl.innerHTML = '';
   if (contentEl) contentEl.innerHTML = '';
 
   const COMP_PERSONA = 'comprehensive';
+  // 2 static + 7 LLM + 1 static appendix
+  const TOTAL_SECTIONS = 10;
+  const SECTION_NAMES = [
+    'Portfolio Overview',
+    'Program Inventory',
+    'Business Context & Domain Analysis',
+    'Functional Specifications — Online Programs',
+    'Functional Specifications — Batch Programs & Data Architecture',
+    'Technical Architecture & Java Implementation Guide',
+    'Migration Strategy & Execution Roadmap',
+    'Risk Analysis & Mitigation Plan',
+    'Testing Strategy & Quality Assurance',
+    'Complete Appendix — All Artifacts',
+  ];
+
+  // ── Inline progress tracker injected into the content panel ──────────────
+  const tracker = document.createElement('div');
+  tracker.id = 'comp-spec-tracker';
+  tracker.style.cssText = [
+    'padding:18px 20px',
+    'background:var(--surface2)',
+    'border:1px solid var(--border)',
+    'border-radius:8px',
+    'margin-bottom:0',
+    'position:sticky',
+    'top:0',
+    'z-index:10',
+  ].join(';');
+  tracker.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+      <div style="font-weight:700;font-size:13px;color:var(--ust-teal2);">⟳ Generating Portfolio Specification</div>
+      <div style="font-size:12px;color:var(--muted);"><span id="comp-done-count">0</span>&nbsp;/&nbsp;${TOTAL_SECTIONS} sections</div>
+    </div>
+    <div class="progress-bar" style="margin-bottom:14px;height:8px;">
+      <div id="comp-inline-fill" class="progress-fill" style="width:0%;transition:width .5s;"></div>
+    </div>
+    <div id="comp-section-list" style="display:grid;grid-template-columns:1fr 1fr;gap:4px 20px;">
+      ${SECTION_NAMES.map((name, i) => `
+        <div id="comp-sec-row-${i}" style="display:flex;align-items:center;gap:7px;padding:3px 0;font-size:12px;color:var(--muted);">
+          <svg id="comp-sec-icon-${i}" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/>
+          </svg>
+          <span>${name}</span>
+        </div>
+      `).join('')}
+    </div>
+  `;
+  if (contentEl) contentEl.appendChild(tracker);
+
+  // Persona content div lives below the tracker
   addPersonaTab(COMP_PERSONA, '📄 Portfolio Report', 'pending', tabsEl, contentEl);
   switchPersonaTab(COMP_PERSONA);
+
+  function _markSection(title: string, sectionIdx: number): void {
+    // Find by title match first, else fall back to arrival order
+    const idx = SECTION_NAMES.indexOf(title) >= 0 ? SECTION_NAMES.indexOf(title) : (sectionIdx - 1);
+    if (idx < 0) return;
+    const icon = document.getElementById(`comp-sec-icon-${idx}`);
+    const row  = document.getElementById(`comp-sec-row-${idx}`);
+    if (icon) icon.outerHTML = `<svg id="comp-sec-icon-${idx}" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>`;
+    if (row)  row.style.color = 'var(--text)';
+    const count = document.getElementById('comp-done-count');
+    if (count) count.textContent = String(sectionIdx);
+    const fill = document.getElementById('comp-inline-fill');
+    if (fill)  fill.style.width = Math.round((sectionIdx / TOTAL_SECTIONS) * 100) + '%';
+  }
 
   let fullMarkdown = '';
   let sectionCount = 0;
@@ -888,8 +960,6 @@ async function generateComprehensiveSpec(): Promise<void> {
     const reader = resp.body?.getReader();
     const decoder = new TextDecoder();
     let buf = '';
-    // 2 static + 7 LLM sections + 1 static appendix = 10
-    const TOTAL_SECTIONS = 10;
 
     while (reader) {
       const chunk = await reader.read();
@@ -905,17 +975,29 @@ async function generateComprehensiveSpec(): Promise<void> {
             sectionCount++;
             fullMarkdown += '\n\n---\n\n' + (evt.content ?? '');
             _personaResults[COMP_PERSONA] = fullMarkdown;
-            const pct = Math.round((sectionCount / TOTAL_SECTIONS) * 100);
-            if (progressFill) progressFill.style.width = pct + '%';
-            if (progressMsg) progressMsg.textContent = `Section ${sectionCount}/${TOTAL_SECTIONS}: ${evt.title ?? ''}`;
+            _markSection(evt.title ?? '', sectionCount);
             const div = $<HTMLElement>(`persona-content-${COMP_PERSONA}`);
             if (div) {
               div.innerHTML = _renderMarkdown(fullMarkdown);
               try { await (window as any).mermaid?.run({ querySelector: '#persona-content-comprehensive .mermaid' }); } catch {}
             }
           } else if (evt.event === 'all_done') {
-            if (progressMsg) progressMsg.textContent = `Complete — ${sectionCount} sections generated`;
-            if (progressFill) progressFill.style.width = '100%';
+            // All done — mark tracker complete then fade it out
+            const fill = document.getElementById('comp-inline-fill');
+            if (fill) fill.style.width = '100%';
+            const titleEl = tracker.querySelector('div[style*="font-weight:700"]') as HTMLElement | null;
+            if (titleEl) {
+              titleEl.textContent = `✓ Portfolio Specification Complete — ${sectionCount} sections`;
+              titleEl.style.color = '#4ade80';
+            }
+            setTimeout(() => {
+              tracker.style.transition = 'opacity .8s, max-height .8s';
+              tracker.style.opacity = '0';
+              tracker.style.maxHeight = '0';
+              tracker.style.overflow = 'hidden';
+              tracker.style.padding = '0';
+              setTimeout(() => tracker.remove(), 850);
+            }, 2500);
           }
         } catch { /* partial JSON */ }
       }
@@ -927,7 +1009,6 @@ async function generateComprehensiveSpec(): Promise<void> {
       btn.disabled = false;
       btn.innerHTML = '<svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg> Generate Comprehensive Report';
     }
-    if (progressEl) setTimeout(() => { if (progressEl) progressEl.style.display = 'none'; }, 3000);
     const mdBtn  = $<HTMLButtonElement>('spec-export-md');
     const pdfBtn = $<HTMLButtonElement>('spec-export-pdf');
     if (mdBtn)  mdBtn.disabled  = !fullMarkdown;

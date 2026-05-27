@@ -1114,30 +1114,202 @@ def explain_copybook_endpoint(body: dict):
         for d in data_items_sample[:20]
     ]
 
-    prompt = f"""You are a COBOL modernisation expert. Explain the purpose and content of the COBOL copybook named {name}.
+    prompt = f"""You are a senior COBOL modernisation architect producing a professional specification for a COBOL copybook.
+Write in full English paragraphs. Every section needs narrative prose — not terse bullet lists.
 
-Copybook type: {source_type}
-Total data items defined: {item_count}
-Used by programs: {', '.join(consumer_names) if consumer_names else '(none detected)'}
+## Copybook: {name}
+- Type: {source_type}
+- Total data items: {item_count}
+- Used by programs: {', '.join(consumer_names) if consumer_names else '(none detected)'}
 
-Data items defined (sample):
+## Data Items Defined (sample up to 30):
 {chr(10).join(pic_lines) if pic_lines else '  (none extracted)'}
 
-Write a concise explanation (3-5 sentences) covering:
-1. What business entity or concept this copybook represents
-2. The key data fields and their likely purpose
-3. Which programs use it and what that implies about data flow
+## Your Task — Write a Complete Copybook Specification
 
-Be specific and grounded in the data shown above. Do not invent fields not listed."""
+### 1. Business Purpose
+Write 2–3 paragraphs in plain English explaining: what business entity or concept this copybook represents, why it exists as a shared structure rather than being defined inside a single program, and what business data it holds. Infer the business meaning from the field names (e.g., fields named ACCT-* likely belong to an Account entity; fields named TRAN-* to a Transaction entity).
+
+### 2. Field-by-Field Explanation
+For each data item listed above, explain in a sentence what it represents in business terms. Group fields into logical sub-sections if they form a natural group (e.g., "Account Identification Fields", "Financial Balance Fields", "Status and Control Fields").
+
+### 3. Data Flow Analysis
+Write a paragraph explaining how this copybook is used across the programs that include it. Which programs read it, which write it? What does the sharing of this structure across {len(consumer_names)} programs tell us about the data architecture? Are there any notable patterns (e.g., all programs pass this structure via COMMAREA)?
+
+### 4. Migration Design — Java Equivalent
+Write a paragraph explaining how this copybook maps to a Java class. Should it be a JPA `@Entity`, a `@Embeddable`, a DTO, or a shared value object? Explain why. Then produce the Java class skeleton:
+
+```java
+// Package and imports here
+// @Entity/@Embeddable/@Data annotation with explanation
+public class {name.replace('-','').replace('_','').title()} {{
+    // Fields mapped from COBOL data items above
+    // Use BigDecimal for COMP-3 packed decimal fields (PIC S9...V9)
+    // Use String for PIC X (alpha) fields
+    // Use int/long for PIC 9 COMP (binary) fields
+    // Map 88-level conditions to Java enums where applicable
+}}
+```
+
+### 5. Migration Considerations
+Write a paragraph covering: any REDEFINES clauses that complicate migration, OCCURS clauses that map to Java Lists/arrays, COMP-3 fields that need BigDecimal handling, and any 88-level conditions that should become Java enums.
+
+Be specific and cite the actual field names from the data above. Do not invent fields not listed."""
 
     try:
-        from llm.llm_client import call_llm
-        spec = call_llm(prompt, max_tokens=512)
+        from llm.multi_agent import _call_llm
+        spec = _call_llm(prompt, max_tokens=4096)
     except Exception as exc:
         raise HTTPException(500, str(exc))
 
     return {"spec": spec, "name": name, "source_type": source_type,
             "consumer_count": len(consumers), "item_count": item_count}
+
+
+# ── JCL spec generation ───────────────────────────────────────────────────────
+
+@app.post("/explain-jcl", tags=["LLM"])
+def explain_jcl_endpoint(body: dict):
+    """Generate a full specification for a JCL job using parsed artifact data."""
+    job_name = body.get("name", "").strip().upper()
+    if not job_name:
+        raise HTTPException(400, "name required")
+    if not _db_exists():
+        raise HTTPException(503, "Pipeline database not found — run the pipeline first.")
+
+    with _con() as con:
+        # Steps and programs executed
+        steps = _rows_to_list(con.execute(
+            """SELECT DISTINCT step_name, program_name, dd_name, dataset_name,
+                      cobol_logical_file, disposition
+               FROM jcl_program_binding WHERE UPPER(job_name)=UPPER(?)
+               ORDER BY step_name""",
+            (job_name,),
+        ).fetchall())
+
+        # Distinct programs run in this job
+        programs_run = list({s["program_name"] for s in steps if s.get("program_name")})
+
+        # Business rules from programs run by this job
+        biz_rules = []
+        if programs_run:
+            placeholders = ",".join("?" * len(programs_run))
+            biz_rules = _rows_to_list(con.execute(
+                f"""SELECT n.name AS program, br.kind, br.predicate_resolved, br.predicate_raw,
+                           br.then_summary, br.else_summary, br.line
+                    FROM business_rules br JOIN nodes n ON n.uuid=br.program_uuid
+                    WHERE UPPER(n.name) IN ({placeholders})
+                    ORDER BY n.name, br.line LIMIT 60""",
+                [p.upper() for p in programs_run],
+            ).fetchall())
+
+        # File I/O from programs run by this job
+        file_ops = []
+        if programs_run:
+            placeholders = ",".join("?" * len(programs_run))
+            file_ops = _rows_to_list(con.execute(
+                f"""SELECT n.name AS program, fi.file_name, fi.operation
+                    FROM file_io fi JOIN nodes n ON n.uuid=fi.program_uuid
+                    WHERE UPPER(n.name) IN ({placeholders})
+                    ORDER BY n.name, fi.file_name""",
+                [p.upper() for p in programs_run],
+            ).fetchall())
+
+        # Risks from programs run by this job
+        risks = []
+        if programs_run:
+            placeholders = ",".join("?" * len(programs_run))
+            risks = _rows_to_list(con.execute(
+                f"""SELECT n.name AS program, r.severity, r.kind, r.note, r.line
+                    FROM risk_register r JOIN nodes n ON n.uuid=r.program_uuid
+                    WHERE UPPER(n.name) IN ({placeholders}) AND r.severity='HIGH'
+                    ORDER BY n.name""",
+                [p.upper() for p in programs_run],
+            ).fetchall())
+
+    # Format steps summary
+    steps_summary = []
+    for s in steps:
+        steps_summary.append(
+            f"  Step {s.get('step_name','?')}: EXEC {s.get('program_name','?')} | "
+            f"DD {s.get('dd_name','?')} → DSN:{s.get('dataset_name','?')} [{s.get('disposition','?')}] → "
+            f"COBOL file:{s.get('cobol_logical_file','?')}"
+        )
+
+    rules_summary = "\n".join(
+        f"  [{r['program']}:{r.get('line','')}] {r.get('kind','')} | "
+        f"IF {r.get('predicate_resolved') or r.get('predicate_raw','')} "
+        f"THEN {r.get('then_summary','')} ELSE {r.get('else_summary','')}"
+        for r in biz_rules
+    )
+
+    file_summary = "\n".join(
+        f"  {r['program']} → {r.get('file_name','')} [{r.get('operation','')}]"
+        for r in file_ops
+    )
+
+    prompt = f"""You are a senior COBOL/batch modernisation architect producing a professional specification for a JCL job.
+Write in full English paragraphs. Every section must have narrative prose explaining concepts in plain English.
+
+## JCL Job: {job_name}
+Programs executed: {', '.join(programs_run) if programs_run else '(none resolved)'}
+Total steps: {len(steps)}
+
+## Job Steps and Dataset Bindings:
+{chr(10).join(steps_summary) if steps_summary else '  (none recorded)'}
+
+## Business Rules from Programs Run by This Job ({len(biz_rules)} rules):
+{rules_summary if rules_summary else '  (none extracted)'}
+
+## File I/O Operations:
+{file_summary if file_summary else '  (none extracted)'}
+
+## HIGH Risks:
+{chr(10).join(f"  [{r['program']}] {r['kind']} line {r.get('line','')} — {r.get('note','')}" for r in risks) if risks else '  (none)'}
+
+## Your Task — Write a Complete JCL Job Specification
+
+### 1. Business Purpose
+Write 2–3 paragraphs in plain English explaining: what business function this batch job performs, when it runs (daily overnight? weekly? triggered by an event?), what business problem it solves, and what happens if it does not run or fails. Infer business meaning from the job name (e.g., BILLJOB = billing, TRANJOB = transaction posting, ACCTJOB = account processing).
+
+### 2. Step-by-Step Processing Logic
+For each execution step, write a paragraph explaining: which COBOL program is invoked, what input datasets it reads (and what those datasets contain in business terms), what processing it performs (derived from the business rules above), and what output datasets it produces. Explain the dependency chain between steps — why must step 1 complete before step 2 starts?
+
+### 3. Business Rules Applied
+For each business rule extracted from the programs above, explain in plain English what business policy it enforces. Write: "This rule ensures that [business scenario] by checking [condition]. When the condition is met, [outcome]."
+
+### 4. Data Flow Diagram
+Draw a Mermaid `graph TD` showing the complete data flow through this job: input datasets → COBOL programs → output datasets. Use the actual dataset names and program names from the context above.
+
+```mermaid
+graph TD
+  %% Input datasets → Programs → Output datasets
+```
+
+### 5. Spring Batch Equivalent Design
+Write a paragraph explaining how this JCL job maps to a Spring Batch job. Which steps map to which Spring Batch steps? What `ItemReader` reads the input data (now from PostgreSQL rather than VSAM flat files)? What `ItemProcessor` implements the COBOL business logic? What `ItemWriter` produces the output? Show the Spring Batch `@Configuration` class skeleton:
+
+```java
+// Package and imports
+@Configuration
+public class {job_name.replace('-','').replace('_','').title()}Config {{
+    // JobBuilder, StepBuilder, ItemReader, ItemProcessor, ItemWriter definitions
+    // Map each JCL step to a Spring Batch step
+}}
+```
+
+### 6. Migration Risks and Considerations
+Write a paragraph explaining the migration challenges specific to this job: any HIGH-severity risks from the programs it runs, batch throughput requirements, restart/recovery design (how does Spring Batch's job repository replace JCL COND= and ABEND handling), and any file format conversion challenges (VSAM/QSAM → PostgreSQL).
+
+Be specific — cite actual program names, dataset names, and business rule predicates from the context above."""
+
+    try:
+        from llm.multi_agent import _call_llm
+        spec = _call_llm(prompt, max_tokens=4096)
+    except Exception as exc:
+        raise HTTPException(500, str(exc))
+
+    return {"spec": spec, "name": job_name, "steps": len(steps), "programs": programs_run}
 
 
 # ── Multi-persona spec generation ─────────────────────────────────────────────

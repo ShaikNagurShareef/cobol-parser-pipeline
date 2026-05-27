@@ -166,9 +166,9 @@
 
     /* Layout */
     #sidebar { width: 240px; min-width: 240px; background: var(--ust-navy); border-right: 1px solid var(--border); height: 100vh; position: fixed; top: 0; left: 0; overflow-y: auto; z-index: 50; transition: transform .25s; }
-    #main { margin-left: 240px; min-height: 100vh; display: flex; flex-direction: column; }
+    #main { margin-left: 240px; min-height: 100vh; display: flex; flex-direction: column; overflow-x: hidden; }
     #topbar { height: 56px; background: var(--surface); border-bottom: 2px solid var(--ust-teal); display: flex; align-items: center; padding: 0 24px; position: sticky; top: 0; z-index: 40; }
-    #content { flex: 1; padding: 28px 32px; max-width: 1400px; width: 100%; }
+    #content { flex: 1; padding: 28px 32px; max-width: 1400px; width: 100%; overflow-x: hidden; }
 
     /* Sidebar brand bar */
     .sidebar-brand { background: #003c51; border-bottom: 3px solid var(--ust-teal); padding: 14px 16px; }
@@ -1100,9 +1100,9 @@
     </div>
 
     <!-- Right panel: tabbed persona output -->
-    <div class="card" style="min-height:500px;display:flex;flex-direction:column;">
+    <div class="card" style="min-height:500px;display:flex;flex-direction:column;min-width:0;overflow:hidden;">
       <div id="spec-tabs" style="display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid var(--border);margin-bottom:16px;padding-bottom:0;min-height:38px;"></div>
-      <div id="spec-tab-content" style="flex:1;overflow:auto;">
+      <div id="spec-tab-content" style="flex:1;overflow:auto;min-width:0;width:100%;">
         <div id="spec-empty-state" style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:300px;color:var(--muted);">
           <svg width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" style="margin-bottom:12px;opacity:.4;"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
           <div>Select a program and click Generate Specs</div>
